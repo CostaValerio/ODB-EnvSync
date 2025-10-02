@@ -2,6 +2,35 @@
 
 Tool to sync Oracle DB environments, reads db objects, outputs as json, and generates install scripts
 
+## Generating install scripts
+
+Use the procedure `env_sync_capture_pkg.generate_install_script` to obtain the DDL needed to recreate objects captured in `ENV_SYNC_SCHEMA_OBJECTS`.
+
+```
+declare
+    l_script clob;
+begin
+    env_sync_capture_pkg.generate_install_script(
+        p_schema_name => 'MY_SCHEMA',
+        p_compare_json => null,
+        p_script => l_script);
+
+    dbms_output.put_line(l_script);
+end;
+/
+```
+
+- If `p_compare_json` is `NULL`, the procedure exports the installation script for every captured object in the schema.
+- Provide a JSON array in `p_compare_json` with objects containing `schema_name`, `object_type`, and `object_name` (for example, the payload exported from another environment) to limit the script to objects that are **missing** from the uploaded snapshot. Objects found in the JSON are skipped so only the missing DDL is generated. A minimal payload looks like:
+
+  ```
+  [
+    {"schema_name": "MY_SCHEMA", "object_type": "TABLE", "object_name": "EXISTING_TABLE"},
+    {"schema_name": "MY_SCHEMA", "object_type": "VIEW", "object_name": "EXISTING_VIEW"}
+  ]
+  ```
+- When every object in the capture is present in the uploaded JSON the procedure returns `NULL`, signalling that there is nothing left to install.
+
 ## Database objects
 
 The project now includes a configuration table responsible for defining how installation scripts are produced:
