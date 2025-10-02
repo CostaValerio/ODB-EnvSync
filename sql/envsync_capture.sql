@@ -55,10 +55,22 @@ create or replace package env_sync_capture_pkg as
 
     function get_index_json(p_schema_name in t_owner,
                             p_index_name in t_object_name) return clob;
+
+    procedure generate_install_script(p_schema_name in t_owner,
+                                      p_compare_json in clob default null,
+                                      p_script out clob);
 end env_sync_capture_pkg;
 /
 
 create or replace package body env_sync_capture_pkg as
+
+    procedure configure_metadata_transform is
+    begin
+        dbms_metadata.set_transform_param(dbms_metadata.session_transform,
+                                          'SQLTERMINATOR', true);
+        dbms_metadata.set_transform_param(dbms_metadata.session_transform,
+                                          'PRETTY', true);
+    end configure_metadata_transform;
 
     procedure upsert_payload(p_schema_name in t_owner,
                              p_object_type in t_object_type,
@@ -250,10 +262,7 @@ create or replace package body env_sync_capture_pkg as
         l_ddl clob;
         l_type varchar2(30) := upper(p_object_type);
     begin
-        dbms_metadata.set_transform_param(dbms_metadata.session_transform,
-                                          'SQLTERMINATOR', true);
-        dbms_metadata.set_transform_param(dbms_metadata.session_transform,
-                                          'PRETTY', true);
+        configure_metadata_transform;
 
         l_ddl := dbms_metadata.get_ddl(object_type => l_type,
                                        name        => upper(p_object_name),
@@ -315,6 +324,26 @@ create or replace package body env_sync_capture_pkg as
             return null;
     end get_index_json;
 
+    function get_object_ddl(p_schema_name in t_owner,
+                            p_object_type in t_object_type,
+                            p_object_name in t_object_name) return clob is
+        l_metadata_type varchar2(30);
+    begin
+        configure_metadata_transform;
+
+        l_metadata_type := case upper(p_object_type)
+                               when 'PACKAGE BODY' then 'PACKAGE_BODY'
+                               else upper(p_object_type)
+                           end;
+
+        return dbms_metadata.get_ddl(object_type => l_metadata_type,
+                                     name        => upper(p_object_name),
+                                     schema      => upper(p_schema_name));
+    exception
+        when others then
+            return null;
+    end get_object_ddl;
+
     procedure capture_object(p_schema_name in t_owner,
                              p_object_type in t_object_type,
                              p_object_name in t_object_name) is
@@ -372,6 +401,88 @@ create or replace package body env_sync_capture_pkg as
                            p_object_name => obj.object_name);
         end loop;
     end capture_schema;
+
+    procedure generate_install_script(p_schema_name in t_owner,
+                                      p_compare_json in clob default null,
+                                      p_script out clob) is
+        procedure append_ddl(p_ddl in clob, p_type in t_object_type) is
+            l_upper_type varchar2(30) := upper(p_type);
+        begin
+            if p_ddl is null then
+                return;
+            end if;
+
+            if dbms_lob.getlength(p_script) > 0 then
+                dbms_lob.writeappend(p_script, 1, chr(10));
+            end if;
+
+            dbms_lob.append(p_script, p_ddl);
+            dbms_lob.writeappend(p_script, 1, chr(10));
+
+            if l_upper_type in ('PACKAGE', 'PACKAGE BODY', 'PROCEDURE', 'FUNCTION', 'TRIGGER') then
+                dbms_lob.writeappend(p_script, 2, '/' || chr(10));
+            end if;
+
+            dbms_lob.writeappend(p_script, 1, chr(10));
+        end append_ddl;
+
+        procedure process_missing_objects is
+        begin
+            for obj in (
+                select so.object_type, so.object_name
+                  from env_sync_schema_objects so
+                 where so.schema_name = upper(p_schema_name)
+                   and not exists (
+                           select 1
+                             from json_table(p_compare_json format json, '$[*]'
+                                  columns (
+                                      schema_name varchar2(128) path '$.schema_name',
+                                      object_type varchar2(30)  path '$.object_type',
+                                      object_name varchar2(128) path '$.object_name'
+                                  )) cmp
+                            where so.schema_name = upper(nvl(cmp.schema_name, p_schema_name))
+                              and so.object_type = upper(cmp.object_type)
+                              and so.object_name = upper(cmp.object_name))
+                 order by so.object_type, so.object_name)
+            loop
+                append_ddl(get_object_ddl(p_schema_name => p_schema_name,
+                                          p_object_type => obj.object_type,
+                                          p_object_name => obj.object_name),
+                           obj.object_type);
+            end loop;
+        end process_missing_objects;
+
+    begin
+        dbms_lob.createtemporary(p_script, true);
+
+        if p_compare_json is not null and dbms_lob.getlength(p_compare_json) > 0 then
+            process_missing_objects;
+        else
+            for obj in (
+                select so.object_type, so.object_name
+                  from env_sync_schema_objects so
+                 where so.schema_name = upper(p_schema_name)
+                 order by so.object_type, so.object_name)
+            loop
+                append_ddl(get_object_ddl(p_schema_name => p_schema_name,
+                                          p_object_type => obj.object_type,
+                                          p_object_name => obj.object_name),
+                           obj.object_type);
+            end loop;
+        end if;
+
+        if dbms_lob.getlength(p_script) = 0 then
+            dbms_lob.freetemporary(p_script);
+            p_script := null;
+        end if;
+    exception
+        when others then
+            if dbms_lob.istemporary(p_script) = 1 then
+                dbms_lob.freetemporary(p_script);
+            end if;
+            p_script := null;
+            raise;
+    end generate_install_script;
 
 end env_sync_capture_pkg;
 /
