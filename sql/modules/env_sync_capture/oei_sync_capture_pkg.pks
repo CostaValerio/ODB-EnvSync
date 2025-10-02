@@ -43,10 +43,23 @@ create or replace package oei_env_sync_capture_pkg as
     function f_get_index_json(in_schema_name in t_owner,
                             in_index_name in t_object_name) return clob;
 
+    -- Normalize DDL for consistent hashing (trim, remove terminators, collapse whitespace)
+    function f_normalize_ddl(in_ddl in clob) return clob;
+
+    -- Hash DDL using SHA-256 over normalized content; returns lowercase hex
+    function f_ddl_hash(in_ddl in clob) return varchar2;
+
     -- Generates a concatenated installation script (DDL) into out_script.
     -- If in_compare_json is provided, includes only objects missing from the JSON list.
     procedure p_generate_install_script(in_schema_name in t_owner,
                                       in_compare_json in clob default null,
                                       out_script out clob);
+
+    -- Attempt to produce ALTER statements to transform target object into source
+    -- Only works when both schemas are accessible in the same database and supported by DBMS_METADATA_DIFF
+    function f_diff_object(in_src_schema in t_owner,
+                           in_tgt_schema in t_owner,
+                           in_object_type in t_object_type,
+                           in_object_name in t_object_name) return clob;
 end oei_env_sync_capture_pkg;
 /

@@ -6,6 +6,7 @@ create table oei_env_sync_schema_objects (
     object_name     varchar2(128) not null,
     captured_on     timestamp default systimestamp not null,
     payload         clob not null,
+    ddl_hash        varchar2(64), -- SHA-256 hex of normalized DDL (when available)
     constraint oei_env_sync_schema_objects_uq unique (schema_name, object_type, object_name)
 );
 

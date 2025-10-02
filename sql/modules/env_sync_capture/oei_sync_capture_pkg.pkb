@@ -21,12 +21,114 @@ create or replace package body oei_env_sync_capture_pkg as
                                           'PRETTY', true);
     end p_configure_metadata_transform;
 
+    -- Normalize DDL to a canonical form to improve hash stability
+    function f_normalize_ddl(in_ddl in clob) return clob is
+        l_ddl clob := in_ddl;
+    begin
+        if l_ddl is null then
+            return null;
+        end if;
+        -- Remove trailing SQL*Plus delimiter '/'
+        l_ddl := regexp_replace(l_ddl, '/\s*$', '');
+        -- Remove trailing semicolon terminator
+        l_ddl := regexp_replace(l_ddl, ';\s*$', '');
+        -- Replace newlines with spaces
+        l_ddl := replace(replace(l_ddl, chr(13), ' '), chr(10), ' ');
+        -- Collapse excessive whitespace
+        l_ddl := regexp_replace(l_ddl, '\s+', ' ');
+        -- Trim
+        l_ddl := trim(l_ddl);
+        return l_ddl;
+    end f_normalize_ddl;
+
+    -- Compute SHA-256 hash (hex, lowercase) of normalized DDL
+    function f_ddl_hash(in_ddl in clob) return varchar2 is
+        l_norm clob;
+    begin
+        if in_ddl is null then
+            return null;
+        end if;
+        l_norm := f_normalize_ddl(in_ddl);
+        if l_norm is null then
+            return null;
+        end if;
+        return lower(rawtohex(standard_hash(l_norm, 'SHA256')));
+    exception
+        when others then
+            -- If environment lacks STANDARD_HASH CLOB support, fallback on VARCHAR2 slice
+            return lower(rawtohex(standard_hash(dbms_lob.substr(l_norm, 32767, 1), 'SHA256')));
+    end f_ddl_hash;
+
+    -- Internal: compute current object DDL hash for a given object
+    function f_compute_object_hash(in_schema_name in t_owner,
+                                   in_object_type in t_object_type,
+                                   in_object_name in t_object_name) return varchar2 is
+        l_ddl clob;
+    begin
+        l_ddl := f_get_object_ddl(in_schema_name => in_schema_name,
+                                  in_object_type => in_object_type,
+                                  in_object_name => in_object_name);
+        return f_ddl_hash(l_ddl);
+    exception
+        when others then
+            return null;
+    end f_compute_object_hash;
+
+    -- Retrieve per-type generation mode from config table, defaulting as needed
+    function f_get_type_mode(in_object_type in t_object_type) return varchar2 is
+        l_mode varchar2(20);
+    begin
+        select generation_mode
+          into l_mode
+          from oei_install_script_type_mode
+         where object_type = upper(in_object_type);
+        return l_mode;
+    exception
+        when no_data_found then
+            -- Defaults: DIFF for TABLE and INDEX; DDL otherwise
+            if upper(in_object_type) in ('TABLE','INDEX') then
+                return 'DIFF';
+            else
+                return 'DDL';
+            end if;
+        when others then
+            return 'DDL';
+    end f_get_type_mode;
+
+    -- Produce ALTER statements to transform target object into source, when supported
+    function f_diff_object(in_src_schema in t_owner,
+                           in_tgt_schema in t_owner,
+                           in_object_type in t_object_type,
+                           in_object_name in t_object_name) return clob is
+        l_type varchar2(30) := case upper(in_object_type)
+                                   when 'PACKAGE BODY' then 'PACKAGE_BODY'
+                                   else upper(in_object_type)
+                               end;
+        l_alter clob;
+    begin
+        p_configure_metadata_transform;
+        -- Best-effort call; if unsupported, return NULL
+        l_alter := dbms_metadata_diff.compare_alter(
+                      object_type => l_type,
+                      name1       => upper(in_object_name),
+                      name2       => upper(in_object_name),
+                      schema1     => upper(in_src_schema),
+                      schema2     => upper(in_tgt_schema));
+        return l_alter;
+    exception
+        when others then
+            return null;
+    end f_diff_object;
+
     -- Inserts or updates a captured JSON payload for a given object
     procedure p_upsert_payload(in_schema_name in t_owner,
                              in_object_type in t_object_type,
                              in_object_name in t_object_name,
                              in_payload in clob) is
+        l_hash varchar2(64);
     begin
+        -- Compute current DDL hash for the object (when retrievable)
+        l_hash := f_compute_object_hash(in_schema_name, in_object_type, in_object_name);
         -- Merge ensures idempotent persistence by primary key (schema, type, name)
         merge into oei_env_sync_schema_objects tgt
         using (select in_schema_name schema_name,
@@ -39,11 +141,12 @@ create or replace package body oei_env_sync_capture_pkg as
         when matched then
             -- Update payload on re-capture
             update set payload = in_payload,
+                       ddl_hash = l_hash,
                        captured_on = systimestamp
         when not matched then
             -- Insert new object payload
-            insert (schema_name, object_type, object_name, payload)
-            values (in_schema_name, in_object_type, in_object_name, in_payload);
+            insert (schema_name, object_type, object_name, payload, ddl_hash)
+            values (in_schema_name, in_object_type, in_object_name, in_payload, l_hash);
     end p_upsert_payload;
 
     -- Produce JSON describing a single sequence
@@ -433,7 +536,7 @@ create or replace package body oei_env_sync_capture_pkg as
         procedure p_process_missing_objects is
         begin
             for obj in (
-                select so.object_type, so.object_name
+                select so.object_type, so.object_name, so.ddl_hash
                   from oei_env_sync_schema_objects so
                  where so.schema_name = upper(in_schema_name)
                    and not exists (
@@ -461,23 +564,91 @@ create or replace package body oei_env_sync_capture_pkg as
                           end,
                           so.object_name)
             loop
-                p_append_ddl(f_get_object_ddl(in_schema_name => in_schema_name,
-                                              in_object_type => obj.object_type,
-                                              in_object_name => obj.object_name),
-                             obj.object_type);
+                -- Skip unchanged objects when current hash equals stored hash
+                declare
+                    l_current_hash varchar2(64);
+                    l_ddl clob;
+                begin
+                    l_current_hash := f_compute_object_hash(in_schema_name, obj.object_type, obj.object_name);
+                    if l_current_hash is not null and obj.ddl_hash is not null and l_current_hash = obj.ddl_hash then
+                        null; -- unchanged, skip
+                    else
+                        l_ddl := f_get_object_ddl(in_schema_name => in_schema_name,
+                                                  in_object_type => obj.object_type,
+                                                  in_object_name => obj.object_name);
+                        p_append_ddl(l_ddl, obj.object_type);
+                    end if;
+                end;
             end loop;
         end p_process_missing_objects;
+
+        -- When a compare JSON is provided, emit ALTERs for existing objects when changed
+        procedure p_process_existing_objects is
+        begin
+            for obj in (
+                select cmp.schema_name as tgt_schema,
+                       so.object_type,
+                       so.object_name,
+                       so.ddl_hash
+                  from oei_env_sync_schema_objects so
+                  join (
+                        select x.schema_name, x.object_type, x.object_name
+                          from json_table(in_compare_json format json, '$[*]'
+                               columns (
+                                   schema_name varchar2(128) path '$.schema_name',
+                                   object_type varchar2(30)  path '$.object_type',
+                                   object_name varchar2(128) path '$.object_name'
+                               )) x
+                       ) cmp
+                    on upper(cmp.object_type) = so.object_type
+                   and upper(cmp.object_name) = so.object_name
+                 where so.schema_name = upper(in_schema_name)
+                 order by so.object_type, so.object_name)
+            loop
+                declare
+                    l_mode varchar2(20) := f_get_type_mode(obj.object_type);
+                    l_current_hash varchar2(64);
+                    l_alter clob;
+                    l_ddl clob;
+                begin
+                    -- Skip when unchanged by hash
+                    l_current_hash := f_compute_object_hash(in_schema_name, obj.object_type, obj.object_name);
+                    if l_current_hash is not null and obj.ddl_hash is not null and l_current_hash = obj.ddl_hash then
+                        null;
+                    else
+                        if l_mode = 'DIFF' and obj.tgt_schema is not null then
+                            l_alter := f_diff_object(in_src_schema   => in_schema_name,
+                                                     in_tgt_schema   => obj.tgt_schema,
+                                                     in_object_type  => obj.object_type,
+                                                     in_object_name  => obj.object_name);
+                        end if;
+
+                        if l_alter is not null and dbms_lob.getlength(l_alter) > 0 then
+                            p_append_ddl(l_alter, obj.object_type);
+                        else
+                            -- Fallback to full DDL
+                            l_ddl := f_get_object_ddl(in_schema_name => in_schema_name,
+                                                      in_object_type => obj.object_type,
+                                                      in_object_name => obj.object_name);
+                            p_append_ddl(l_ddl, obj.object_type);
+                        end if;
+                    end if;
+                end;
+            end loop;
+        end p_process_existing_objects;
 
     begin
         -- Create a temporary CLOB to accumulate the script
         dbms_lob.createtemporary(out_script, true);
 
         if in_compare_json is not null and dbms_lob.getlength(in_compare_json) > 0 then
+            -- First, update existing target objects (attempt DIFF), then create missing
+            p_process_existing_objects;
             p_process_missing_objects;
         else
             -- No compare payload: export all captured objects for the schema
             for obj in (
-                select so.object_type, so.object_name
+                select so.object_type, so.object_name, so.ddl_hash
                   from oei_env_sync_schema_objects so
                  where so.schema_name = upper(in_schema_name)
                  order by case so.object_type
@@ -494,10 +665,21 @@ create or replace package body oei_env_sync_capture_pkg as
                           end,
                           so.object_name)
             loop
-                p_append_ddl(f_get_object_ddl(in_schema_name => in_schema_name,
-                                              in_object_type => obj.object_type,
-                                              in_object_name => obj.object_name),
-                             obj.object_type);
+                -- Skip unchanged objects when current hash equals stored hash
+                declare
+                    l_current_hash varchar2(64);
+                    l_ddl clob;
+                begin
+                    l_current_hash := f_compute_object_hash(in_schema_name, obj.object_type, obj.object_name);
+                    if l_current_hash is not null and obj.ddl_hash is not null and l_current_hash = obj.ddl_hash then
+                        null; -- unchanged, skip
+                    else
+                        l_ddl := f_get_object_ddl(in_schema_name => in_schema_name,
+                                                  in_object_type => obj.object_type,
+                                                  in_object_name => obj.object_name);
+                        p_append_ddl(l_ddl, obj.object_type);
+                    end if;
+                end;
             end loop;
         end if;
 

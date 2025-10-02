@@ -31,6 +31,14 @@ end;
   ```
 - When every object in the capture is present in the uploaded JSON the procedure returns `NULL`, signalling that there is nothing left to install.
 
+### Change detection via DDL hash
+
+The capture process now stores a normalized DDL hash (`ddl_hash`, SHA‑256) for each object. During script generation, objects whose current database DDL hash equals the stored hash are considered unchanged and are skipped. This keeps the generated script focused on objects that actually changed since the last capture.
+
+Notes:
+- Hashing uses a normalized DDL (whitespace collapsed, terminators removed) for stability.
+- If DDL cannot be retrieved for an object, it will be included by default.
+
 ### Installation order
 
 The generated script already follows the order expected by a clean installation. When iterating over captured metadata the package applies an explicit sort key so statements are emitted in dependency-friendly batches:
@@ -48,6 +56,21 @@ The generated script already follows the order expected by a clean installation.
 Within each group objects are ordered by name. This means structures required by later objects—such as tables referenced by indexes, triggers, or PL/SQL—are always installed first. The package relies on `DBMS_METADATA.GET_DDL`, so each statement includes its dependent metadata (for example, table-level constraints), allowing the script to run from top to bottom on a brand-new database without additional orchestration.
 
 If you need a different ordering—for example to group related modules together—you can switch an object type to the `CUSTOM` strategy in `OEI_INSTALL_SCRIPT_STRATEGY` and point it to a hand-crafted script.
+
+### DIFF support (minimal ALTERs)
+
+When both source and target schemas exist in the same database, the tool attempts to generate ALTER statements using `DBMS_METADATA_DIFF` instead of full DDL, based on a per‑type strategy in `OEI_INSTALL_SCRIPT_TYPE_MODE`:
+
+- Default modes: `TABLE` and `INDEX` use `DIFF`, others use `DDL`.
+- You can change modes by updating `OEI_INSTALL_SCRIPT_TYPE_MODE`.
+- In APEX “Generate Install Script”, provide a compare JSON where `schema_name` for each row identifies the target schema to compare against. The generator will:
+  - Emit ALTER statements for objects present in the target when changed.
+  - Emit full CREATE statements for objects missing at the target.
+  - Skip objects when hashes indicate no change.
+
+Notes:
+- `DBMS_METADATA_DIFF` may not support every structure; the generator falls back to full DDL when a DIFF isn’t available or returns empty.
+- When your target is in a different database, `DIFF` is not possible; the generator uses full DDL.
 
 ## Database objects
 
