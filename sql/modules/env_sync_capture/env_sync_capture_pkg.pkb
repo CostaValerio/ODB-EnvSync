@@ -330,7 +330,19 @@ create or replace package body env_sync_capture_pkg as
                    'PACKAGE BODY',
                    'TRIGGER',
                    'INDEX')
-             order by object_type, object_name)
+             order by case object_type
+                         when 'SEQUENCE' then 1
+                         when 'TABLE' then 2
+                         when 'INDEX' then 3
+                         when 'TRIGGER' then 4
+                         when 'VIEW' then 5
+                         when 'PACKAGE' then 6
+                         when 'PACKAGE BODY' then 7
+                         when 'PROCEDURE' then 8
+                         when 'FUNCTION' then 9
+                         else 100
+                      end,
+                      object_name)
         loop
             capture_object(in_schema_name => in_schema_name,
                            in_object_type => obj.object_type,
@@ -379,7 +391,19 @@ create or replace package body env_sync_capture_pkg as
                             where so.schema_name = upper(nvl(cmp.schema_name, in_schema_name))
                               and so.object_type = upper(cmp.object_type)
                               and so.object_name = upper(cmp.object_name))
-                 order by so.object_type, so.object_name)
+                 order by case so.object_type
+                             when 'SEQUENCE' then 1
+                             when 'TABLE' then 2
+                             when 'INDEX' then 3
+                             when 'TRIGGER' then 4
+                             when 'VIEW' then 5
+                             when 'PACKAGE' then 6
+                             when 'PACKAGE BODY' then 7
+                             when 'PROCEDURE' then 8
+                             when 'FUNCTION' then 9
+                             else 100
+                          end,
+                          so.object_name)
             loop
                 append_ddl(get_object_ddl(in_schema_name => in_schema_name,
                                           in_object_type => obj.object_type,
@@ -398,7 +422,19 @@ create or replace package body env_sync_capture_pkg as
                 select so.object_type, so.object_name
                   from oei_env_sync_schema_objects so
                  where so.schema_name = upper(in_schema_name)
-                 order by so.object_type, so.object_name)
+                 order by case so.object_type
+                             when 'SEQUENCE' then 1
+                             when 'TABLE' then 2
+                             when 'INDEX' then 3
+                             when 'TRIGGER' then 4
+                             when 'VIEW' then 5
+                             when 'PACKAGE' then 6
+                             when 'PACKAGE BODY' then 7
+                             when 'PROCEDURE' then 8
+                             when 'FUNCTION' then 9
+                             else 100
+                          end,
+                          so.object_name)
             loop
                 append_ddl(get_object_ddl(in_schema_name => in_schema_name,
                                           in_object_type => obj.object_type,

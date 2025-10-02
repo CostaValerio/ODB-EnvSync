@@ -31,6 +31,24 @@ end;
   ```
 - When every object in the capture is present in the uploaded JSON the procedure returns `NULL`, signalling that there is nothing left to install.
 
+### Installation order
+
+The generated script already follows the order expected by a clean installation. When iterating over captured metadata the package applies an explicit sort key so statements are emitted in dependency-friendly batches:
+
+1. Sequences
+2. Tables
+3. Indexes
+4. Triggers
+5. Views
+6. Package specifications
+7. Package bodies
+8. Procedures
+9. Functions
+
+Within each group objects are ordered by name. This means structures required by later objects—such as tables referenced by indexes, triggers, or PL/SQL—are always installed first. The package relies on `DBMS_METADATA.GET_DDL`, so each statement includes its dependent metadata (for example, table-level constraints), allowing the script to run from top to bottom on a brand-new database without additional orchestration.
+
+If you need a different ordering—for example to group related modules together—you can switch an object type to the `CUSTOM` strategy in `OEI_INSTALL_SCRIPT_STRATEGY` and point it to a hand-crafted script.
+
 ## Database objects
 
 The project now includes a configuration table responsible for defining how installation scripts are produced:
