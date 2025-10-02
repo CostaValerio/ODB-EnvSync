@@ -4,13 +4,13 @@ Tool to sync Oracle DB environments, reads db objects, outputs as json, and gene
 
 ## Generating install scripts
 
-Use the procedure `env_sync_capture_pkg.generate_install_script` to obtain the DDL needed to recreate objects captured in `ENV_SYNC_SCHEMA_OBJECTS`.
+Use the procedure `env_sync_capture_pkg.p_generate_install_script` to obtain the DDL needed to recreate objects captured in `ENV_SYNC_SCHEMA_OBJECTS`.
 
 ```
 declare
     l_script clob;
 begin
-    env_sync_capture_pkg.generate_install_script(
+    env_sync_capture_pkg.p_generate_install_script(
         p_schema_name => 'MY_SCHEMA',
         p_compare_json => null,
         p_script => l_script);
