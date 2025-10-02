@@ -11,7 +11,7 @@ create table oei_install_script_strategy (
     constraint uq_install_script_strategy_name unique (strategy_name),
     constraint ck_install_script_strategy_mode check (generation_mode in ('DDL', 'CUSTOM')),
     constraint ck_install_script_strategy_custom check (
-        (generation_mode = 'DDL'   and custom_script is null)
+        (generation_mode = 'DDL'    and custom_script is null)
         or
         (generation_mode = 'CUSTOM' and custom_script is not null)
     )
@@ -51,4 +51,3 @@ begin
     :new.updated_at := sysdate;
 end;
 /
-
