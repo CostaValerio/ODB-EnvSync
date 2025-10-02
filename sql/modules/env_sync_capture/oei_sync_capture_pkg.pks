@@ -1,4 +1,4 @@
-create or replace package env_sync_capture_pkg as
+create or replace package oei_env_sync_capture_pkg as
     /*
       Package specification for environment sync capture utilities.
       - Public procedures use prefix p_
@@ -48,5 +48,5 @@ create or replace package env_sync_capture_pkg as
     procedure p_generate_install_script(in_schema_name in t_owner,
                                       in_compare_json in clob default null,
                                       out_script out clob);
-end env_sync_capture_pkg;
+end oei_env_sync_capture_pkg;
 /

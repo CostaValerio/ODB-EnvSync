@@ -34,7 +34,7 @@ declare
   l_type   t_object_type := :P2_OBJECT_TYPE;
   l_name   t_object_name := :P2_OBJECT_NAME;
 begin
-  env_sync_capture_pkg.p_capture_object(
+  oei_env_sync_capture_pkg.p_capture_object(
     in_schema_name => l_schema,
     in_object_type => l_type,
     in_object_name => l_name
@@ -46,4 +46,3 @@ exception
     raise;
 end;
 /
-

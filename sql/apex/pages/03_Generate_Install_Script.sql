@@ -20,7 +20,7 @@ declare
   l_script clob;
   l_schema t_owner := coalesce(:P3_SCHEMA_NAME, user);
 begin
-  env_sync_capture_pkg.p_generate_install_script(
+  oei_env_sync_capture_pkg.p_generate_install_script(
     in_schema_name   => l_schema,
     in_compare_json  => :P3_COMPARE_JSON,
     out_script       => l_script
@@ -45,4 +45,3 @@ end;
 --   Query: select dbms_lob.substr(:P3_SCRIPT, 4000, (level-1)*4000+1) as chunk
 --          from dual
 --          connect by level <= ceil(nvl(dbms_lob.getlength(:P3_SCRIPT),0)/4000)
-

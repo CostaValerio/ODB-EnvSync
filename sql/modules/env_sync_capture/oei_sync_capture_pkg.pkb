@@ -1,4 +1,4 @@
-create or replace package body env_sync_capture_pkg as
+create or replace package body oei_env_sync_capture_pkg as
 
     /*
       Package body implementing environment sync capture utilities.
@@ -516,9 +516,9 @@ create or replace package body env_sync_capture_pkg as
             raise;
     end p_generate_install_script;
 
-end env_sync_capture_pkg;
+end oei_env_sync_capture_pkg;
 /
-
+ 
 -- Display compilation errors (for SQL*Plus/SQLcl usage)
-show errors package env_sync_capture_pkg;
-show errors package body env_sync_capture_pkg;
+show errors package oei_env_sync_capture_pkg;
+show errors package body oei_env_sync_capture_pkg;

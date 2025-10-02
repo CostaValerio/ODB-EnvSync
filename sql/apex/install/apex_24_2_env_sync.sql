@@ -118,7 +118,7 @@ begin
 declare
   l_schema varchar2(128) := coalesce(:P1_SCHEMA_NAME, user);
 begin
-  env_sync_capture_pkg.p_capture_schema(l_schema);
+  oei_env_sync_capture_pkg.p_capture_schema(l_schema);
   :P1_MESSAGE := 'Capture completed for ' || upper(l_schema);
 exception
   when others then
@@ -222,7 +222,7 @@ declare
   l_type   varchar2(30)  := :P2_OBJECT_TYPE;
   l_name   varchar2(128) := :P2_OBJECT_NAME;
 begin
-  env_sync_capture_pkg.p_capture_object(
+  oei_env_sync_capture_pkg.p_capture_object(
     in_schema_name => l_schema,
     in_object_type => l_type,
     in_object_name => l_name
@@ -328,7 +328,7 @@ declare
   l_script clob;
   l_schema varchar2(128) := coalesce(:P3_SCHEMA_NAME, user);
 begin
-  env_sync_capture_pkg.p_generate_install_script(
+  oei_env_sync_capture_pkg.p_generate_install_script(
     in_schema_name   => l_schema,
     in_compare_json  => :P3_COMPARE_JSON,
     out_script       => l_script
@@ -394,4 +394,3 @@ end;
 /
 
 prompt Done. Review pages 1-4 in application &APP_ID. within workspace &WORKSPACE.
-
