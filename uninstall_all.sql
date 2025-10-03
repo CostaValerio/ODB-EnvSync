@@ -1,5 +1,5 @@
 prompt ================================================================================
-prompt ODB-EnvSync - Uninstall (Core + optional APEX pages)
+prompt ODB-EnvSync - Uninstall (Core only)
 prompt ================================================================================
 set define on
 set echo on
@@ -42,29 +42,6 @@ begin execute immediate 'drop table oei_install_script_type_mode purge'; excepti
 begin execute immediate 'drop table oei_install_script_strategy purge'; exception when others then null; end;
 /
 
-prompt ----------------------------------------------------------------
-prompt Optional: Remove APEX pages (APEX 24.2)
-prompt   - When ready, uncomment and set WORKSPACE and APP_ID below.
-prompt ----------------------------------------------------------------
--- define WORKSPACE = YOUR_WORKSPACE
--- define APP_ID    = 100
--- declare
---   l_ws_id number;
--- begin
---   l_ws_id := apex_util.find_security_group_id(p_workspace => '&WORKSPACE.');
---   if l_ws_id is not null then
---     apex_util.set_security_group_id(l_ws_id);
---     apex_application_api.remove_page(p_flow_id => &APP_ID., p_page_id => 1);
---     apex_application_api.remove_page(p_flow_id => &APP_ID., p_page_id => 2);
---     apex_application_api.remove_page(p_flow_id => &APP_ID., p_page_id => 3);
---     apex_application_api.remove_page(p_flow_id => &APP_ID., p_page_id => 4);
---     apex_application_api.remove_page(p_flow_id => &APP_ID., p_page_id => 5);
---     apex_application_api.remove_page(p_flow_id => &APP_ID., p_page_id => 6);
---     apex_application_api.remove_page(p_flow_id => &APP_ID., p_page_id => 7);
---     apex_application_api.remove_page(p_flow_id => &APP_ID., p_page_id => 8);
---   end if;
--- end;
--- /
 
 prompt ================================================================================
 prompt Uninstall finished.
