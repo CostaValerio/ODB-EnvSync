@@ -45,12 +45,12 @@ Use this checklist to plan and track the next iterations. Check off items as the
 - [x] Config data seeds: add config table and generate `MERGE` DML for configured tables.
 
 ## Milestone 7 — Consistency & Packaging
-- [ ] Align file names with package name (optionally rename to `oei_env_sync_capture_pkg.pks/pkb`).
-- [ ] One‑shot installer scripts (objects + APEX 24.2 pages) and uninstall script.
-- [ ] Update READMEs (root and `sql/apex/`) with new workflow and APEX screenshots.
-- [ ] Semantic versioning + CHANGELOG.md; tag first release.
+- [x] Align file names with package name (renamed to `oei_env_sync_capture_pkg.pks/pkb`).
+- [x] One‑shot installer scripts (objects + APEX 24.2 pages) and uninstall script.
+- [x] Update READMEs (root and `sql/apex/`) with new workflow and install/uninstall notes.
+- [x] Semantic versioning + `CHANGELOG.md`; initialized version 0.1.0.
 
 ## Milestone 8 — Quality & CI (optional)
-- [ ] Add unit tests with utPLSQL (where available) for normalization/hash and diff logic.
-- [ ] Linting/formatting guidance for PL/SQL and SQL scripts.
-- [ ] Example datasets and demo app bundle for onboarding.
+- [x] Add unit tests with utPLSQL (where available) for normalization/hash and DIFF smoke.
+- [x] Linting/formatting guidance for PL/SQL and SQL scripts (see sql/STYLE.md).
+- [x] Example datasets and demo snapshot for onboarding (see samples/).

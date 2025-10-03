@@ -1,3 +1,4 @@
+-- canonical file name for package spec
 create or replace package oei_env_sync_capture_pkg as
     /*
       Package specification for environment sync capture utilities.

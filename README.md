@@ -97,8 +97,8 @@ Os DDLs estao agora organizados por tipo de artefacto em `sql/ddl` e os modulos 
   @sql/ddl/env_sync_capture/oei_env_sync_install_log.sql
   @sql/ddl/env_sync_capture/oei_env_sync_audit.sql
   @sql/ddl/env_sync_capture/oei_env_sync_scheduler.sql
-  @sql/modules/env_sync_capture/oei_sync_capture_pkg.pks
-  @sql/modules/env_sync_capture/oei_sync_capture_pkg.pkb
+  @sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pks
+  @sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pkb
 
 ### Governance & Safety (optional but recommended in DEV)
 - DDL audit (DEV only): `oei_env_sync_audit` table + schema-level DDL trigger captures who/what/when and the DDL text. Enable/disable helpers are provided:
@@ -107,3 +107,31 @@ Os DDLs estao agora organizados por tipo de artefacto em `sql/ddl` e os modulos 
 - Nightly capture job: `OEI_ENV_SYNC_CAPTURE_JOB` scans `oei_env_sync_capture_targets` and runs `p_capture_schema` at 02:00 daily. Populate targets:
   - `insert into oei_env_sync_capture_targets(schema_name) values ('MY_SCHEMA'); commit;`
 - APEX authorization schemes (when APEX installer is enabled): two schemes are created — "Can Capture" and "Can Release" — driven by DB roles `OEI_ENV_CAPTURE_ROLE` and `OEI_ENV_RELEASE_ROLE`. Assign these schemes to pages or buttons as desired.
+## Uninstall
+
+Run the main uninstall script from the project root:
+
+  @uninstall_all.sql
+
+This removes the scheduler job, audit trigger/helpers, package, and all related tables. The APEX page removal is included as a commented section; uncomment and set `WORKSPACE` and `APP_ID` if you want to drop the pages too.
+## Tests (utPLSQL)
+
+Unit tests are provided using utPLSQL. Install utPLSQL in your database (see its documentation), then run:
+
+  @sql/tests/ut/oei_env_sync_capture_pkg_test.pks
+  @sql/tests/ut/oei_env_sync_capture_pkg_test.pkb
+  begin ut.run('oei.envsync'); end; /
+
+The suite validates DDL normalization and hashing and includes a smoke test for the DIFF API. If utPLSQL is not available, you can skip this step.
+
+## Samples
+
+- Create demo objects and sample data:
+
+  @samples/demo_schema.sql
+
+- A sample snapshot JSON is available at `samples/snapshots/dev_sample.json`. You can upload its content in the APEX Upload Snapshot page or insert it directly into `OEI_ENV_SYNC_SNAPSHOTS`.
+
+## Style
+
+See `sql/STYLE.md` for SQL/PLSQL conventions used in this project.

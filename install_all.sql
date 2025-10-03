@@ -23,8 +23,8 @@ prompt Installing core database objects...
 @sql/ddl/env_sync_capture/oei_env_sync_seed_tables.sql
 
 prompt Installing PL/SQL package (spec + body)...
-@sql/modules/env_sync_capture/oei_sync_capture_pkg.pks
-@sql/modules/env_sync_capture/oei_sync_capture_pkg.pkb
+@sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pks
+@sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pkb
 
 prompt Core install complete.
 

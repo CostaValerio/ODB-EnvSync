@@ -1,0 +1,10 @@
+[
+  {"schema_name": "&SCHEMA.", "object_type": "TABLE", "object_name": "DEMO_PARENT"},
+  {"schema_name": "&SCHEMA.", "object_type": "TABLE", "object_name": "DEMO_CHILD"},
+  {"schema_name": "&SCHEMA.", "object_type": "INDEX", "object_name": "IDX_DEMO_CHILD_PARENT"},
+  {"schema_name": "&SCHEMA.", "object_type": "VIEW", "object_name": "DEMO_CHILD_V"},
+  {"schema_name": "&SCHEMA.", "object_type": "PROCEDURE", "object_name": "DEMO_PR_ADD_PARENT"},
+  {"schema_name": "&SCHEMA.", "object_type": "FUNCTION", "object_name": "DEMO_FN_COUNT_CHILDREN"},
+  {"schema_name": "&SCHEMA.", "object_type": "TRIGGER", "object_name": "TRG_DEMO_CHILD_BIU"},
+  {"schema_name": "&SCHEMA.", "object_type": "SEQUENCE", "object_name": "DEMO_SEQ"}
+]
