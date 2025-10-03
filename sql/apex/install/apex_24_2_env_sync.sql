@@ -26,6 +26,28 @@ end;
 /
 
 --------------------------------------------------------------------------------
+-- Authorization Schemes (DB roles based)
+--------------------------------------------------------------------------------
+begin
+  apex_application_api.create_security_scheme(
+    p_id                 => apex_application_api.id(9001),
+    p_flow_id            => &APP_ID.,
+    p_name               => 'Can Capture',
+    p_scheme_type        => 'NATIVE_FUNCTION_BODY',
+    p_attribute_01       => q'[return exists (select 1 from session_roles where role = 'OEI_ENV_CAPTURE_ROLE');]',
+    p_error_message      => 'Not authorized to capture.');
+
+  apex_application_api.create_security_scheme(
+    p_id                 => apex_application_api.id(9002),
+    p_flow_id            => &APP_ID.,
+    p_name               => 'Can Release',
+    p_scheme_type        => 'NATIVE_FUNCTION_BODY',
+    p_attribute_01       => q'[return exists (select 1 from session_roles where role = 'OEI_ENV_RELEASE_ROLE');]',
+    p_error_message      => 'Not authorized to release.');
+end;
+/
+
+--------------------------------------------------------------------------------
 -- Helper: safely remove a page if it exists
 --------------------------------------------------------------------------------
 declare
@@ -42,6 +64,10 @@ begin
   drop_page(&APP_ID., 2);
   drop_page(&APP_ID., 3);
   drop_page(&APP_ID., 4);
+  drop_page(&APP_ID., 5);
+  drop_page(&APP_ID., 6);
+  drop_page(&APP_ID., 7);
+  drop_page(&APP_ID., 8);
 end;
 /
 
@@ -394,3 +420,251 @@ end;
 /
 
 prompt Done. Review pages 1-4 in application &APP_ID. within workspace &WORKSPACE.
+
+--------------------------------------------------------------------------------
+-- Page 5: Upload Snapshot
+--------------------------------------------------------------------------------
+begin
+  apex_application_api.create_page(
+    p_id                => 5,
+    p_flow_id           => &APP_ID.,
+    p_name              => 'Upload Snapshot',
+    p_step_title        => 'Upload Snapshot',
+    p_warn_on_unsaved_changes => 'Y');
+
+  apex_application_api.create_page_plug(
+    p_id                 => apex_application_api.id(50),
+    p_flow_id            => &APP_ID.,
+    p_page_id            => 5,
+    p_plug_name          => 'Upload',
+    p_plug_display_sequence  => 10,
+    p_plug_source_type       => 'NATIVE_STATIC');
+
+  apex_application_api.create_page_item(
+    p_id => apex_application_api.id(51), p_flow_id=>&APP_ID., p_page_id=>5,
+    p_name=>'P5_SNAPSHOT_NAME', p_item_plug_id=>apex_application_api.id(50), p_item_sequence=>10,
+    p_prompt=>'Snapshot Name', p_display_as=>'NATIVE_TEXT_FIELD', p_is_required=>'Y');
+
+  apex_application_api.create_page_item(
+    p_id => apex_application_api.id(52), p_flow_id=>&APP_ID., p_page_id=>5,
+    p_name=>'P5_TARGET_SCHEMA', p_item_plug_id=>apex_application_api.id(50), p_item_sequence=>20,
+    p_prompt=>'Target Schema', p_display_as=>'NATIVE_TEXT_FIELD');
+
+  apex_application_api.create_page_item(
+    p_id => apex_application_api.id(53), p_flow_id=>&APP_ID., p_page_id=>5,
+    p_name=>'P5_SOURCE_ENV', p_item_plug_id=>apex_application_api.id(50), p_item_sequence=>30,
+    p_prompt=>'Source Env', p_display_as=>'NATIVE_TEXT_FIELD');
+
+  apex_application_api.create_page_item(
+    p_id => apex_application_api.id(54), p_flow_id=>&APP_ID., p_page_id=>5,
+    p_name=>'P5_PAYLOAD', p_item_plug_id=>apex_application_api.id(50), p_item_sequence=>40,
+    p_prompt=>'Payload (JSON)', p_display_as=>'NATIVE_TEXTAREA', p_cHeight=>15, p_cSize=>100);
+
+  apex_application_api.create_page_item(
+    p_id => apex_application_api.id(55), p_flow_id=>&APP_ID., p_page_id=>5,
+    p_name=>'P5_MESSAGE', p_item_plug_id=>apex_application_api.id(50), p_item_sequence=>90,
+    p_prompt=>'Message', p_display_as=>'NATIVE_DISPLAY_ONLY');
+
+  apex_application_api.create_page_button(
+    p_id=>apex_application_api.id(56), p_flow_id=>&APP_ID., p_page_id=>5,
+    p_button_plug_id=>apex_application_api.id(50), p_button_sequence=>50,
+    p_button_name=>'P5_UPLOAD', p_button_action=>'SUBMIT', p_button_is_hot=>'Y', p_button_image_alt=>'Upload');
+
+  apex_application_api.create_page_process(
+    p_id=>apex_application_api.id(57), p_flow_id=>&APP_ID., p_page_id=>5,
+    p_process_sequence=>10, p_process_point=>'AFTER_SUBMIT', p_process_type=>'NATIVE_PLSQL',
+    p_process_name=>'PRC_UPLOAD_SNAPSHOT', p_process_sql_clob=>q'[
+declare
+  l_dummy number;
+begin
+  select 1 into l_dummy
+    from json_table(:P5_PAYLOAD format json, '$[0]'
+           columns (object_type varchar2(30) path '$.object_type', object_name varchar2(128) path '$.object_name'));
+  insert into oei_env_sync_snapshots (snapshot_name, target_schema, source_env, payload)
+  values (:P5_SNAPSHOT_NAME, :P5_TARGET_SCHEMA, :P5_SOURCE_ENV, :P5_PAYLOAD);
+  :P5_MESSAGE := 'Snapshot uploaded: ' || :P5_SNAPSHOT_NAME;
+exception when others then
+  :P5_MESSAGE := 'Error: ' || sqlerrm; raise;
+end;]');
+end;
+/
+
+--------------------------------------------------------------------------------
+-- Page 6: Changes Review
+--------------------------------------------------------------------------------
+begin
+  apex_application_api.create_page(
+    p_id                => 6,
+    p_flow_id           => &APP_ID.,
+    p_name              => 'Changes Review',
+    p_step_title        => 'Changes Review',
+    p_warn_on_unsaved_changes => 'N');
+
+  apex_application_api.create_page_plug(
+    p_id=>apex_application_api.id(60), p_flow_id=>&APP_ID., p_page_id=>6,
+    p_plug_name=>'Parameters', p_plug_display_sequence=>10, p_plug_source_type=>'NATIVE_STATIC');
+
+  apex_application_api.create_page_plug(
+    p_id=>apex_application_api.id(61), p_flow_id=>&APP_ID., p_page_id=>6,
+    p_plug_name=>'Changes', p_plug_display_sequence=>20, p_plug_source_type=>'NATIVE_IR',
+    p_plug_source=>q'[
+with data as (
+  select oei_env_sync_capture_pkg.f_list_changes(:P6_SCHEMA_NAME,
+          (select payload from oei_env_sync_snapshots where snapshot_id = :P6_SNAPSHOT_ID)) j from dual
+)
+select t.change_type, t.object_type, t.object_name
+  from data d,
+       json_table(d.j, '$[*]'
+         columns (
+           change_type varchar2(20) path '$.change_type',
+           object_type varchar2(30) path '$.object_type',
+           object_name varchar2(128) path '$.object_name'
+         )) t
+ where :P6_FILTER is null or t.change_type = :P6_FILTER
+ order by t.change_type, t.object_type, t.object_name]');
+
+  apex_application_api.create_page_item(
+    p_id=>apex_application_api.id(62), p_flow_id=>&APP_ID., p_page_id=>6,
+    p_name=>'P6_SCHEMA_NAME', p_item_plug_id=>apex_application_api.id(60), p_item_sequence=>10,
+    p_prompt=>'Source Schema', p_display_as=>'NATIVE_TEXT_FIELD', p_is_required=>'Y');
+
+  apex_application_api.create_page_item(
+    p_id=>apex_application_api.id(63), p_flow_id=>&APP_ID., p_page_id=>6,
+    p_name=>'P6_SNAPSHOT_ID', p_item_plug_id=>apex_application_api.id(60), p_item_sequence=>20,
+    p_prompt=>'Snapshot', p_display_as=>'NATIVE_SELECT_LIST',
+    p_lov=>q'[select snapshot_name||' ('||created_by||')' d, snapshot_id r from oei_env_sync_snapshots order by created_on desc]');
+
+  apex_application_api.create_page_item(
+    p_id=>apex_application_api.id(64), p_flow_id=>&APP_ID., p_page_id=>6,
+    p_name=>'P6_FILTER', p_item_plug_id=>apex_application_api.id(60), p_item_sequence=>30,
+    p_prompt=>'Filter Change Type', p_display_as=>'NATIVE_SELECT_LIST',
+    p_lov=>'STATIC2:All;,'||'ADDED;ADDED,MODIFIED;MODIFIED,DROPPED;DROPPED,UNCHANGED;UNCHANGED');
+
+  apex_application_api.create_page_button(
+    p_id=>apex_application_api.id(65), p_flow_id=>&APP_ID., p_page_id=>6,
+    p_button_plug_id=>apex_application_api.id(60), p_button_sequence=>40,
+    p_button_name=>'P6_REFRESH', p_button_action=>'SUBMIT', p_button_image_alt=>'Refresh');
+end;
+/
+
+prompt Done. Review pages 1-6 in application &APP_ID. within workspace &WORKSPACE.
+--------------------------------------------------------------------------------
+-- Page 7: Create Release
+--------------------------------------------------------------------------------
+begin
+  apex_application_api.create_page(
+    p_id                => 7,
+    p_flow_id           => &APP_ID.,
+    p_name              => 'Create Release',
+    p_step_title        => 'Create Release',
+    p_warn_on_unsaved_changes => 'Y');
+
+  apex_application_api.create_page_plug(
+    p_id=>apex_application_api.id(70), p_flow_id=>&APP_ID., p_page_id=>7,
+    p_plug_name=>'Create Release', p_plug_display_sequence=>10, p_plug_source_type=>'NATIVE_STATIC');
+
+  apex_application_api.create_page_item(
+    p_id=>apex_application_api.id(71), p_flow_id=>&APP_ID., p_page_id=>7,
+    p_name=>'P7_SCHEMA_NAME', p_item_plug_id=>apex_application_api.id(70), p_item_sequence=>10,
+    p_prompt=>'Source Schema', p_display_as=>'NATIVE_TEXT_FIELD', p_is_required=>'Y');
+
+  apex_application_api.create_page_item(
+    p_id=>apex_application_api.id(72), p_flow_id=>&APP_ID., p_page_id=>7,
+    p_name=>'P7_SNAPSHOT_ID', p_item_plug_id=>apex_application_api.id(70), p_item_sequence=>20,
+    p_prompt=>'Target Snapshot', p_display_as=>'NATIVE_SELECT_LIST',
+    p_lov=>q'[select snapshot_name||' ('||created_by||')' d, snapshot_id r from oei_env_sync_snapshots order by created_on desc]');
+
+  apex_application_api.create_page_item(
+    p_id=>apex_application_api.id(73), p_flow_id=>&APP_ID., p_page_id=>7,
+    p_name=>'P7_TITLE', p_item_plug_id=>apex_application_api.id(70), p_item_sequence=>25,
+    p_prompt=>'Release Title', p_display_as=>'NATIVE_TEXT_FIELD');
+
+  apex_application_api.create_page_item(
+    p_id=>apex_application_api.id(74), p_flow_id=>&APP_ID., p_page_id=>7,
+    p_name=>'P7_SCRIPT', p_item_plug_id=>apex_application_api.id(70), p_item_sequence=>80,
+    p_prompt=>'Script', p_display_as=>'NATIVE_DISPLAY_ONLY');
+
+  apex_application_api.create_page_item(
+    p_id=>apex_application_api.id(75), p_flow_id=>&APP_ID., p_page_id=>7,
+    p_name=>'P7_MESSAGE', p_item_plug_id=>apex_application_api.id(70), p_item_sequence=>90,
+    p_prompt=>'Message', p_display_as=>'NATIVE_DISPLAY_ONLY');
+
+  apex_application_api.create_page_button(
+    p_id=>apex_application_api.id(76), p_flow_id=>&APP_ID., p_page_id=>7,
+    p_button_plug_id=>apex_application_api.id(70), p_button_sequence=>60,
+    p_button_name=>'P7_GENERATE', p_button_action=>'SUBMIT', p_button_is_hot=>'Y', p_button_image_alt=>'Generate Release');
+
+  apex_application_api.create_page_process(
+    p_id=>apex_application_api.id(77), p_flow_id=>&APP_ID., p_page_id=>7,
+    p_process_sequence=>10, p_process_point=>'AFTER_SUBMIT', p_process_type=>'NATIVE_PLSQL',
+    p_process_name=>'PRC_CREATE_RELEASE', p_process_sql_clob=>q'[
+declare
+  l_script   clob;
+  l_manifest clob;
+  l_hash     varchar2(64);
+begin
+  l_manifest := oei_env_sync_capture_pkg.f_list_changes(
+                   in_schema_name  => :P7_SCHEMA_NAME,
+                   in_compare_json => (select payload from oei_env_sync_snapshots where snapshot_id = :P7_SNAPSHOT_ID)
+                 );
+
+  oei_env_sync_capture_pkg.p_generate_install_script(
+    in_schema_name   => :P7_SCHEMA_NAME,
+    in_compare_json  => (select payload from oei_env_sync_snapshots where snapshot_id = :P7_SNAPSHOT_ID),
+    out_script       => l_script
+  );
+
+  l_hash := oei_env_sync_capture_pkg.f_ddl_hash(l_script);
+
+  insert into oei_env_sync_releases (status, release_title, manifest_json, script_clob, script_hash)
+  values ('DRAFT', :P7_TITLE, l_manifest, l_script, l_hash);
+
+  :P7_SCRIPT  := l_script;
+  :P7_MESSAGE := 'Release created as DRAFT with hash ' || l_hash;
+exception when others then
+  :P7_MESSAGE := 'Error: ' || sqlerrm; raise;
+end;]');
+end;
+/
+
+--------------------------------------------------------------------------------
+-- Page 8: Promotion History
+--------------------------------------------------------------------------------
+begin
+  apex_application_api.create_page(
+    p_id                => 8,
+    p_flow_id           => &APP_ID.,
+    p_name              => 'Promotion History',
+    p_step_title        => 'Promotion History');
+
+  apex_application_api.create_page_plug(
+    p_id=>apex_application_api.id(80), p_flow_id=>&APP_ID., p_page_id=>8,
+    p_plug_name=>'Releases', p_plug_display_sequence=>10, p_plug_source_type=>'NATIVE_IR',
+    p_plug_source=>q'[
+select r.release_id,
+       r.status,
+       r.release_title,
+       r.created_by,
+       r.created_on,
+       r.script_hash,
+       dbms_lob.getlength(r.script_clob) as script_length
+  from oei_env_sync_releases r
+ order by r.release_id desc]');
+
+  apex_application_api.create_page_plug(
+    p_id=>apex_application_api.id(81), p_flow_id=>&APP_ID., p_page_id=>8,
+    p_plug_name=>'Install Log', p_plug_display_sequence=>20, p_plug_source_type=>'NATIVE_IR',
+    p_plug_source=>q'[
+select l.install_id,
+       l.release_id,
+       l.target_schema,
+       l.installed_by,
+       l.installed_on,
+       l.success,
+       dbms_lob.getlength(l.log_clob) as log_length
+  from oei_env_sync_install_log l
+ order by l.install_id desc]');
+end;
+/
+
+prompt Done. Review pages 1-8 in application &APP_ID. within workspace &WORKSPACE.

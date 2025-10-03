@@ -1,0 +1,47 @@
+-- Page: Changes Review (suggested Page 6)
+-- Purpose: Review changes between captured source schema and a target snapshot JSON
+-- Items:
+--   P6_SCHEMA_NAME (Text), P6_SNAPSHOT_ID (Select from OEI_ENV_SYNC_SNAPSHOTS), P6_COMPARE_JSON (Display-only or Hidden CLOB), P6_FILTER (Select list)
+-- Regions:
+--   Report: lists change_type, object_type, object_name
+--   DDL Preview: display selected DDL
+-- Buttons: P6_REFRESH (Submit)
+
+-- Region Query (Interactive Report):
+-- Assumes P6_COMPARE_JSON is set from selected snapshot payload
+--
+-- with data as (
+--   select oei_env_sync_capture_pkg.f_list_changes(:P6_SCHEMA_NAME, :P6_COMPARE_JSON) j from dual
+-- )
+-- select t.change_type,
+--        t.object_type,
+--        t.object_name
+--   from data d,
+--        json_table(d.j, '$[*]'
+--           columns (
+--             change_type varchar2(20) path '$.change_type',
+--             object_type varchar2(30) path '$.object_type',
+--             object_name varchar2(128) path '$.object_name'
+--           )) t
+--  where :P6_FILTER is null or t.change_type = :P6_FILTER
+--  order by t.change_type, t.object_type, t.object_name;
+
+-- DDL Preview process (On demand or After Submit example):
+-- declare
+--   l_mode varchar2(20) := oei_env_sync_capture_pkg.f_get_type_mode(:P6_OBJECT_TYPE);
+--   l_ddl  clob;
+-- begin
+--   if :P6_CHANGE_TYPE = 'DROPPED' then
+--     l_ddl := '/* Candidate drop */ DROP '||:P6_OBJECT_TYPE||' '||:P6_OBJECT_NAME;
+--   elsif l_mode = 'DIFF' then
+--     l_ddl := oei_env_sync_capture_pkg.f_diff_object(:P6_SCHEMA_NAME, :P6_TARGET_SCHEMA, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
+--     if l_ddl is null then
+--       l_ddl := oei_env_sync_capture_pkg.f_get_object_ddl(:P6_SCHEMA_NAME, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
+--     end if;
+--   else
+--     l_ddl := oei_env_sync_capture_pkg.f_get_object_ddl(:P6_SCHEMA_NAME, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
+--   end if;
+--   :P6_DDL := l_ddl;
+-- end;
+/
+

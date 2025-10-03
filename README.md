@@ -79,3 +79,31 @@ The project now includes a configuration table responsible for defining how inst
 - `INSTALL_SCRIPT_STRATEGY`: permite escolher entre gerar automaticamente os scripts a partir dos DDLs dos objectos (`generation_mode = 'DDL'`) ou apontar um script customizado, complementado pela configuracao de prefixos e sufixos por tipo de objecto (`generation_mode = 'CUSTOM'`).
 
 Os DDLs estao agora organizados por tipo de artefacto em `sql/ddl` e os modulos PL/SQL encontram-se em `sql/modules`. O ficheiro [`sql/ddl/install_script_strategy/oei_install_script_strategy.sql`](sql/ddl/install_script_strategy/oei_install_script_strategy.sql) contem o DDL completo para criar as tabelas, comentarios e trigger de auditoria que garante o preenchimento consistente das colunas de data. A tabela `INSTALL_SCRIPT_STRATEGY_NAMING` permite definir prefixos e sufixos especificos por tipo de objecto (por exemplo `SEQUENCE` com prefixo `SEQ_`), garantindo a flexibilidade necessaria para estrategias `CUSTOM`.
+## Installation (SQL Developer)
+
+- Run the main installer from the project root:
+
+  @install_all.sql
+
+  This installs core objects (tables + package) and then installs the APEX 24.2 pages. You will be prompted (or set at the top of the script) for `WORKSPACE` and `APP_ID` to target the right APEX application.
+
+- If you want to install only the core DB pieces, run the first part manually and skip the APEX installer:
+
+  @sql/ddl/install_script_strategy/oei_install_script_strategy.sql
+  @sql/ddl/install_script_strategy/oei_install_script_type_mode.sql
+  @sql/ddl/env_sync_capture/oei_env_sync_schema_objects.sql
+  @sql/ddl/env_sync_capture/oei_env_sync_snapshots.sql
+  @sql/ddl/env_sync_capture/oei_env_sync_releases.sql
+  @sql/ddl/env_sync_capture/oei_env_sync_install_log.sql
+  @sql/ddl/env_sync_capture/oei_env_sync_audit.sql
+  @sql/ddl/env_sync_capture/oei_env_sync_scheduler.sql
+  @sql/modules/env_sync_capture/oei_sync_capture_pkg.pks
+  @sql/modules/env_sync_capture/oei_sync_capture_pkg.pkb
+
+### Governance & Safety (optional but recommended in DEV)
+- DDL audit (DEV only): `oei_env_sync_audit` table + schema-level DDL trigger captures who/what/when and the DDL text. Enable/disable helpers are provided:
+  - `exec oei_env_sync_audit_enable;`
+  - `exec oei_env_sync_audit_disable;`
+- Nightly capture job: `OEI_ENV_SYNC_CAPTURE_JOB` scans `oei_env_sync_capture_targets` and runs `p_capture_schema` at 02:00 daily. Populate targets:
+  - `insert into oei_env_sync_capture_targets(schema_name) values ('MY_SCHEMA'); commit;`
+- APEX authorization schemes (when APEX installer is enabled): two schemes are created — "Can Capture" and "Can Release" — driven by DB roles `OEI_ENV_CAPTURE_ROLE` and `OEI_ENV_RELEASE_ROLE`. Assign these schemes to pages or buttons as desired.

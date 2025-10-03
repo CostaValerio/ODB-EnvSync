@@ -120,6 +120,96 @@ create or replace package body oei_env_sync_capture_pkg as
             return null;
     end f_diff_object;
 
+    -- Build a JSON array of changes between captured source schema and provided target snapshot
+    function f_list_changes(in_schema_name in t_owner,
+                            in_compare_json in clob) return clob is
+        l_json clob;
+    begin
+        if in_compare_json is null or dbms_lob.getlength(in_compare_json) = 0 then
+            -- No compare: everything is considered ADDED
+            select json_arrayagg(
+                       json_object(
+                           'schema_name' value upper(in_schema_name),
+                           'object_type' value so.object_type,
+                           'object_name' value so.object_name,
+                           'change_type' value 'ADDED'
+                           returning clob)
+                       order by so.object_type, so.object_name)
+              into l_json
+              from oei_env_sync_schema_objects so
+             where so.schema_name = upper(in_schema_name);
+            return l_json;
+        end if;
+
+        with cmp as (
+            select upper(nvl(c.schema_name, in_schema_name)) schema_name,
+                   upper(c.object_type) object_type,
+                   upper(c.object_name) object_name
+              from json_table(in_compare_json format json, '$[*]'
+                   columns (
+                     schema_name varchar2(128) path '$.schema_name',
+                     object_type varchar2(30)  path '$.object_type',
+                     object_name varchar2(128) path '$.object_name'
+                   )) c
+        ), src as (
+            select so.object_type, so.object_name, so.ddl_hash
+              from oei_env_sync_schema_objects so
+             where so.schema_name = upper(in_schema_name)
+        ), added as (
+            select upper(in_schema_name) schema_name, s.object_type, s.object_name, 'ADDED' change_type
+              from src s
+             where not exists (
+                   select 1 from cmp c
+                    where c.object_type = s.object_type and c.object_name = s.object_name)
+        ), dropped as (
+            select c.schema_name, c.object_type, c.object_name, 'DROPPED' change_type
+              from cmp c
+             where not exists (
+                   select 1 from src s
+                    where s.object_type = c.object_type and s.object_name = c.object_name)
+        ), modified as (
+            select upper(in_schema_name) schema_name,
+                   s.object_type,
+                   s.object_name,
+                   'MODIFIED' change_type
+              from src s
+              join cmp c
+                on c.object_type = s.object_type and c.object_name = s.object_name
+             where (select f_compute_object_hash(c.schema_name, s.object_type, s.object_name) from dual) != s.ddl_hash
+        ), unchanged as (
+            select upper(in_schema_name) schema_name,
+                   s.object_type,
+                   s.object_name,
+                   'UNCHANGED' change_type
+              from src s
+              join cmp c
+                on c.object_type = s.object_type and c.object_name = s.object_name
+             where (select f_compute_object_hash(c.schema_name, s.object_type, s.object_name) from dual) = s.ddl_hash
+        )
+        select json_arrayagg(
+                   json_object(
+                       'schema_name' value schema_name,
+                       'object_type' value object_type,
+                       'object_name' value object_name,
+                       'change_type' value change_type
+                       returning clob)
+                   order by change_type, object_type, object_name)
+          into l_json
+          from (
+                select * from added
+                union all
+                select * from modified
+                union all
+                select * from dropped
+                union all
+                select * from unchanged
+               );
+        return l_json;
+    exception
+        when others then
+            return null;
+    end f_list_changes;
+
     -- Inserts or updates a captured JSON payload for a given object
     procedure p_upsert_payload(in_schema_name in t_owner,
                              in_object_type in t_object_type,
@@ -417,9 +507,12 @@ create or replace package body oei_env_sync_capture_pkg as
 
         -- DBMS_METADATA expects PACKAGE_BODY for package body type
         l_metadata_type := case upper(in_object_type)
-                               when 'PACKAGE BODY' then 'PACKAGE_BODY'
-                               else upper(in_object_type)
-                           end;
+                                when 'PACKAGE BODY' then 'PACKAGE_BODY'
+                                when 'MATERIALIZED VIEW' then 'MATERIALIZED_VIEW'
+                                when 'MATERIALIZED VIEW LOG' then 'MATERIALIZED_VIEW_LOG'
+                                when 'TYPE BODY' then 'TYPE_BODY'
+                                else upper(in_object_type)
+                            end;
 
         return dbms_metadata.get_ddl(object_type => l_metadata_type,
                                      name        => upper(in_object_name),
@@ -445,6 +538,10 @@ create or replace package body oei_env_sync_capture_pkg as
                 l_payload := f_get_table_json(in_schema_name, in_object_name);
             when 'VIEW' then
                 l_payload := f_get_view_json(in_schema_name, in_object_name);
+            when 'MATERIALIZED VIEW' then
+                l_payload := f_get_program_unit_json(in_schema_name, 'MATERIALIZED_VIEW', in_object_name);
+            when 'DIRECTORY' then
+                l_payload := f_get_program_unit_json(in_schema_name, 'DIRECTORY', in_object_name);
             when 'PROCEDURE' then
                 l_payload := f_get_program_unit_json(in_schema_name, 'PROCEDURE', in_object_name);
             when 'FUNCTION' then
@@ -453,10 +550,16 @@ create or replace package body oei_env_sync_capture_pkg as
                 l_payload := f_get_program_unit_json(in_schema_name, 'PACKAGE', in_object_name);
             when 'PACKAGE BODY' then
                 l_payload := f_get_program_unit_json(in_schema_name, 'PACKAGE_BODY', in_object_name);
+            when 'TYPE' then
+                l_payload := f_get_program_unit_json(in_schema_name, 'TYPE', in_object_name);
+            when 'TYPE BODY' then
+                l_payload := f_get_program_unit_json(in_schema_name, 'TYPE_BODY', in_object_name);
             when 'TRIGGER' then
                 l_payload := f_get_trigger_json(in_schema_name, in_object_name);
             when 'INDEX' then
                 l_payload := f_get_index_json(in_schema_name, in_object_name);
+            when 'JOB' then
+                l_payload := f_get_program_unit_json(in_schema_name, 'JOB', in_object_name);
             else
                 raise_application_error(-20001, 'Unsupported object type ' || l_type);
         end case;
@@ -477,24 +580,32 @@ create or replace package body oei_env_sync_capture_pkg as
              where owner = upper(in_schema_name)
                and object_type in (
                    'SEQUENCE',
-                   'TABLE',
-                   'VIEW',
-                   'PROCEDURE',
-                   'FUNCTION',
-                   'PACKAGE',
-                   'PACKAGE BODY',
-                   'TRIGGER',
-                   'INDEX')
+                    'DIRECTORY',
+                    'TYPE',
+                    'TYPE BODY',
+                    'TABLE',
+                    'VIEW',
+                    'MATERIALIZED VIEW',
+                    'PROCEDURE',
+                    'FUNCTION',
+                    'PACKAGE',
+                    'PACKAGE BODY',
+                    'TRIGGER',
+                    'INDEX')
              order by case object_type
                          when 'SEQUENCE' then 1
-                         when 'TABLE' then 2
-                         when 'INDEX' then 3
-                         when 'TRIGGER' then 4
-                         when 'VIEW' then 5
-                         when 'PACKAGE' then 6
-                         when 'PACKAGE BODY' then 7
-                         when 'PROCEDURE' then 8
-                         when 'FUNCTION' then 9
+                         when 'DIRECTORY' then 2
+                         when 'TYPE' then 3
+                         when 'TYPE BODY' then 4
+                         when 'TABLE' then 5
+                         when 'INDEX' then 6
+                         when 'TRIGGER' then 7
+                         when 'VIEW' then 8
+                         when 'MATERIALIZED VIEW' then 9
+                         when 'PACKAGE' then 10
+                         when 'PACKAGE BODY' then 11
+                         when 'PROCEDURE' then 12
+                         when 'FUNCTION' then 13
                          else 100
                       end,
                       object_name)
@@ -502,6 +613,19 @@ create or replace package body oei_env_sync_capture_pkg as
             p_capture_object(in_schema_name => in_schema_name,
                              in_object_type => obj.object_type,
                              in_object_name => obj.object_name);
+        end loop;
+
+        -- Additional objects not listed in ALL_OBJECTS: Directories and Scheduler Jobs
+        for d in (select directory_name from all_directories where owner = upper(in_schema_name)) loop
+            p_capture_object(in_schema_name => in_schema_name,
+                             in_object_type => 'DIRECTORY',
+                             in_object_name => d.directory_name);
+        end loop;
+
+        for j in (select job_name from all_scheduler_jobs where owner = upper(in_schema_name)) loop
+            p_capture_object(in_schema_name => in_schema_name,
+                             in_object_type => 'JOB',
+                             in_object_name => j.job_name);
         end loop;
     end p_capture_schema;
 
@@ -531,6 +655,27 @@ create or replace package body oei_env_sync_capture_pkg as
 
             dbms_lob.writeappend(out_script, 1, chr(10));
         end p_append_ddl;
+
+        -- Append object base DDL and dependent DDL (grants, synonyms) when available
+        procedure p_append_object_with_dependents(in_schema in t_owner,
+                                                  in_type   in t_object_type,
+                                                  in_name   in t_object_name) is
+            l_base  clob;
+            l_dep   clob;
+        begin
+            l_base := f_get_object_ddl(in_schema, in_type, in_name);
+            p_append_ddl(l_base, in_type);
+            -- Object grants
+            l_dep := f_get_dependent_ddl(in_schema, in_type, in_name, 'OBJECT_GRANT');
+            if l_dep is not null and dbms_lob.getlength(l_dep) > 0 then
+                p_append_ddl(l_dep, in_type);
+            end if;
+            -- Synonyms
+            l_dep := f_get_dependent_ddl(in_schema, in_type, in_name, 'SYNONYM');
+            if l_dep is not null and dbms_lob.getlength(l_dep) > 0 then
+                p_append_ddl(l_dep, in_type);
+            end if;
+        end p_append_object_with_dependents;
 
         -- When a compare JSON is provided, emit only objects not present in the JSON
         procedure p_process_missing_objects is
@@ -573,10 +718,7 @@ create or replace package body oei_env_sync_capture_pkg as
                     if l_current_hash is not null and obj.ddl_hash is not null and l_current_hash = obj.ddl_hash then
                         null; -- unchanged, skip
                     else
-                        l_ddl := f_get_object_ddl(in_schema_name => in_schema_name,
-                                                  in_object_type => obj.object_type,
-                                                  in_object_name => obj.object_name);
-                        p_append_ddl(l_ddl, obj.object_type);
+                        p_append_object_with_dependents(in_schema_name, obj.object_type, obj.object_name);
                     end if;
                 end;
             end loop;
@@ -638,7 +780,7 @@ create or replace package body oei_env_sync_capture_pkg as
         end p_process_existing_objects;
 
     begin
-        -- Create a temporary CLOB to accumulate the script
+        -- Create a temporary CLOB to accumulate the BODY of the script
         dbms_lob.createtemporary(out_script, true);
 
         if in_compare_json is not null and dbms_lob.getlength(in_compare_json) > 0 then
@@ -674,10 +816,7 @@ create or replace package body oei_env_sync_capture_pkg as
                     if l_current_hash is not null and obj.ddl_hash is not null and l_current_hash = obj.ddl_hash then
                         null; -- unchanged, skip
                     else
-                        l_ddl := f_get_object_ddl(in_schema_name => in_schema_name,
-                                                  in_object_type => obj.object_type,
-                                                  in_object_name => obj.object_name);
-                        p_append_ddl(l_ddl, obj.object_type);
+                        p_append_object_with_dependents(in_schema_name, obj.object_type, obj.object_name);
                     end if;
                 end;
             end loop;
@@ -687,6 +826,63 @@ create or replace package body oei_env_sync_capture_pkg as
         if dbms_lob.getlength(out_script) = 0 then
             dbms_lob.freetemporary(out_script);
             out_script := null;
+        else
+            -- Prepend header and append footer to produce a robust runnable script
+            declare
+                l_final  clob;
+                l_line   varchar2(4000);
+            begin
+                dbms_lob.createtemporary(l_final, true);
+
+                -- Header
+                l_line := 'set define off';
+                dbms_lob.writeappend(l_final, length(l_line||chr(10)), l_line||chr(10));
+                l_line := 'whenever sqlerror exit failure';
+                dbms_lob.writeappend(l_final, length(l_line||chr(10)), l_line||chr(10));
+                l_line := 'alter session set current_schema = ' || upper(in_schema_name) || ';';
+                dbms_lob.writeappend(l_final, length(l_line||chr(10)||chr(10)), l_line||chr(10)||chr(10));
+
+                -- Body
+                dbms_lob.append(l_final, out_script);
+
+                -- Seed config data (if a target schema is provided via compare JSON)
+                declare
+                    l_target_schema varchar2(128);
+                    l_seeds clob;
+                begin
+                    if in_compare_json is not null and dbms_lob.getlength(in_compare_json) > 0 then
+                        begin
+                            select max(schema_name)
+                              into l_target_schema
+                              from json_table(in_compare_json format json, '$[*]'
+                                   columns (schema_name varchar2(128) path '$.schema_name'))
+                             where rownum = 1;
+                        exception when others then l_target_schema := null; end;
+                    end if;
+                    if l_target_schema is not null then
+                        l_seeds := f_generate_seed_merges(in_schema_name, l_target_schema);
+                        if l_seeds is not null then
+                            dbms_lob.writeappend(l_final, 1, chr(10));
+                            l_line := '-- Data seeds (MERGE) from '||upper(in_schema_name)||' to '||upper(l_target_schema);
+                            dbms_lob.writeappend(l_final, length(l_line||chr(10)), l_line||chr(10));
+                            dbms_lob.append(l_final, l_seeds);
+                        end if;
+                    end if;
+                end;
+
+                -- Footer: optional recompile step
+                dbms_lob.writeappend(l_final, 1, chr(10));
+                dbms_lob.writeappend(l_final, 1, chr(10));
+                l_line := '-- Optional: recompile invalid objects';
+                dbms_lob.writeappend(l_final, length(l_line||chr(10)), l_line||chr(10));
+                l_line := 'begin utl_recomp.recomp_serial(schema => '''||upper(in_schema_name)||'''); end;';
+                dbms_lob.writeappend(l_final, length(l_line||chr(10)), l_line||chr(10));
+                dbms_lob.writeappend(l_final, 2, '/'||chr(10));
+
+                -- Replace out_script with final
+                dbms_lob.freetemporary(out_script);
+                out_script := l_final;
+            end;
         end if;
     exception
         when others then
@@ -697,6 +893,119 @@ create or replace package body oei_env_sync_capture_pkg as
             out_script := null;
             raise;
     end p_generate_install_script;
+
+    -- Return dependent DDL as a CLOB for the given dep type (OBJECT_GRANT, SYNONYM, etc.)
+    function f_get_dependent_ddl(in_schema_name in t_owner,
+                                 in_object_type in t_object_type,
+                                 in_object_name in t_object_name,
+                                 in_dep_type    in varchar2) return clob is
+        l_meta_type varchar2(30);
+    begin
+        l_meta_type := case upper(in_object_type)
+                           when 'PACKAGE BODY' then 'PACKAGE_BODY'
+                           when 'MATERIALIZED VIEW' then 'MATERIALIZED_VIEW'
+                           when 'MATERIALIZED VIEW LOG' then 'MATERIALIZED_VIEW_LOG'
+                           when 'TYPE BODY' then 'TYPE_BODY'
+                           else upper(in_object_type)
+                       end;
+        return dbms_metadata.get_dependent_ddl(object_type => upper(in_dep_type),
+                                               name        => upper(in_object_name),
+                                               schema      => upper(in_schema_name));
+    exception
+        when others then
+            return null;
+    end f_get_dependent_ddl;
+
+    -- Generate MERGE statements for configured seed tables from source to target
+    function f_generate_seed_merges(in_src_schema in t_owner,
+                                    in_tgt_schema in t_owner) return clob is
+        l_out      clob;
+    begin
+        dbms_lob.createtemporary(l_out, true);
+        for t in (
+            select upper(table_name) table_name,
+                   where_clause,
+                   enabled
+              from oei_env_sync_seed_tables
+             where enabled = 'Y'
+        ) loop
+            declare
+                l_pk_cols  varchar2(4000);
+                l_all_cols varchar2(4000);
+                l_non_pk   varchar2(4000);
+                l_sql      clob;
+            begin
+                -- PK columns list
+                select listagg(cc.column_name, ',') within group(order by cc.position)
+                  into l_pk_cols
+                  from all_constraints c
+                  join all_cons_columns cc
+                    on cc.owner = c.owner and cc.table_name = c.table_name and cc.constraint_name = c.constraint_name
+                 where c.owner = upper(in_src_schema)
+                   and c.table_name = t.table_name
+                   and c.constraint_type = 'P';
+
+                -- All columns
+                select listagg(column_name, ',') within group(order by column_id)
+                  into l_all_cols
+                  from all_tab_columns
+                 where owner = upper(in_src_schema)
+                   and table_name = t.table_name
+                   and hidden_column = 'NO';
+
+                -- Non-PK columns
+                select listagg(column_name, ',') within group(order by column_id)
+                  into l_non_pk
+                  from all_tab_columns
+                 where owner = upper(in_src_schema)
+                   and table_name = t.table_name
+                   and hidden_column = 'NO'
+                   and (l_pk_cols is null or instr(','||l_pk_cols||',', ','||column_name||',') = 0);
+
+                if l_all_cols is null or l_pk_cols is null then
+                    continue;
+                end if;
+
+                l_sql := 'merge into '||upper(in_tgt_schema)||'.'||t.table_name||' tgt'||chr(10)||
+                         'using ('||chr(10)||
+                         '  select '||l_all_cols||' from '||upper(in_src_schema)||'.'||t.table_name||
+                         case when t.where_clause is not null then ' where '||t.where_clause else '' end||chr(10)||
+                         ') src'||chr(10)||
+                         'on ('||
+                         (select listagg('tgt.'||c||'=src.'||c, ' and ')
+                            from (
+                                   select regexp_substr(l_pk_cols, '[^,]+', 1, level) c
+                                     from dual connect by regexp_substr(l_pk_cols, '[^,]+', 1, level) is not null
+                                 )
+                         )||')'||chr(10)||
+                         'when matched then update set '||
+                         (case when l_non_pk is not null then
+                               (select listagg('tgt.'||c||'=src.'||c, ',')
+                                  from (
+                                         select regexp_substr(l_non_pk, '[^,]+', 1, level) c
+                                           from dual connect by regexp_substr(l_non_pk, '[^,]+', 1, level) is not null
+                                       ))
+                               else null end)||chr(10)||
+                         'when not matched then insert ('||l_all_cols||') values ('||
+                         (select listagg('src.'||c, ',')
+                            from (
+                                   select regexp_substr(l_all_cols, '[^,]+', 1, level) c
+                                     from dual connect by regexp_substr(l_all_cols, '[^,]+', 1, level) is not null
+                                 ))||');'||chr(10);
+
+                dbms_lob.append(l_out, l_sql);
+                dbms_lob.writeappend(l_out, 2, '/'||chr(10));
+                dbms_lob.writeappend(l_out, 1, chr(10));
+            exception
+                when others then null; -- skip table if metadata is incomplete
+            end;
+        end loop;
+        if dbms_lob.getlength(l_out) = 0 then
+            dbms_lob.freetemporary(l_out);
+            return null;
+        end if;
+        return l_out;
+    end f_generate_seed_merges;
 
 end oei_env_sync_capture_pkg;
 /

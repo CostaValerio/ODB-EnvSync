@@ -61,5 +61,21 @@ create or replace package oei_env_sync_capture_pkg as
                            in_tgt_schema in t_owner,
                            in_object_type in t_object_type,
                            in_object_name in t_object_name) return clob;
+
+    -- List changes between captured objects of in_schema and a target snapshot JSON.
+    -- Returns JSON array with fields: schema_name, object_type, object_name, change_type
+    -- change_type ∈ ('ADDED','MODIFIED','DROPPED','UNCHANGED')
+    function f_list_changes(in_schema_name in t_owner,
+                            in_compare_json in clob) return clob;
+
+    -- Generate MERGE DML statements for configured seed tables from source to target schema
+    function f_generate_seed_merges(in_src_schema in t_owner,
+                                    in_tgt_schema in t_owner) return clob;
+
+    -- Retrieve dependent DDL for an object (e.g., OBJECT_GRANT, SYNONYM)
+    function f_get_dependent_ddl(in_schema_name in t_owner,
+                                 in_object_type in t_object_type,
+                                 in_object_name in t_object_name,
+                                 in_dep_type    in varchar2) return clob;
 end oei_env_sync_capture_pkg;
 /
