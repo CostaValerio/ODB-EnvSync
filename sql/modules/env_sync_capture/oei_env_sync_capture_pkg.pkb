@@ -969,10 +969,13 @@ create or replace package body oei_env_sync_capture_pkg as
              where enabled = 'Y'
         ) loop
             declare
-                l_pk_cols  varchar2(4000);
-                l_all_cols varchar2(4000);
-                l_non_pk   varchar2(4000);
-                l_sql      clob;
+                l_pk_cols      varchar2(4000);
+                l_all_cols     varchar2(4000);
+                l_non_pk       varchar2(4000);
+                l_sql          clob;
+                l_pk_join      varchar2(32767);
+                l_update_set   varchar2(32767);
+                l_values_list  varchar2(32767);
             begin
                 -- PK columns list
                 select listagg(cc.column_name, ',') within group(order by cc.position)
@@ -1005,32 +1008,50 @@ create or replace package body oei_env_sync_capture_pkg as
                     continue;
                 end if;
 
+                -- Build join predicate for PK columns
+                select listagg('tgt.'||c||'=src.'||c, ' and ')
+                  into l_pk_join
+                  from (
+                        select regexp_substr(l_pk_cols, '[^,]+', 1, level) c
+                          from dual
+                        connect by regexp_substr(l_pk_cols, '[^,]+', 1, level) is not null
+                       );
+
+                -- Build update-set list for non-PK columns
+                if l_non_pk is not null then
+                    select listagg('tgt.'||c||'=src.'||c, ',')
+                      into l_update_set
+                      from (
+                            select regexp_substr(l_non_pk, '[^,]+', 1, level) c
+                              from dual
+                            connect by regexp_substr(l_non_pk, '[^,]+', 1, level) is not null
+                           );
+                else
+                    l_update_set := null;
+                end if;
+
+                -- Build values list for insert
+                select listagg('src.'||c, ',')
+                  into l_values_list
+                  from (
+                        select regexp_substr(l_all_cols, '[^,]+', 1, level) c
+                          from dual
+                        connect by regexp_substr(l_all_cols, '[^,]+', 1, level) is not null
+                       );
+
+                -- Assemble MERGE statement
                 l_sql := 'merge into '||upper(in_tgt_schema)||'.'||t.table_name||' tgt'||chr(10)||
                          'using ('||chr(10)||
                          '  select '||l_all_cols||' from '||upper(in_src_schema)||'.'||t.table_name||
                          case when t.where_clause is not null then ' where '||t.where_clause else '' end||chr(10)||
                          ') src'||chr(10)||
-                         'on ('||
-                         (select listagg('tgt.'||c||'=src.'||c, ' and ')
-                            from (
-                                   select regexp_substr(l_pk_cols, '[^,]+', 1, level) c
-                                     from dual connect by regexp_substr(l_pk_cols, '[^,]+', 1, level) is not null
-                                 )
-                         )||')'||chr(10)||
-                         'when matched then update set '||
-                         (case when l_non_pk is not null then
-                               (select listagg('tgt.'||c||'=src.'||c, ',')
-                                  from (
-                                         select regexp_substr(l_non_pk, '[^,]+', 1, level) c
-                                           from dual connect by regexp_substr(l_non_pk, '[^,]+', 1, level) is not null
-                                       ))
-                               else null end)||chr(10)||
-                         'when not matched then insert ('||l_all_cols||') values ('||
-                         (select listagg('src.'||c, ',')
-                            from (
-                                   select regexp_substr(l_all_cols, '[^,]+', 1, level) c
-                                     from dual connect by regexp_substr(l_all_cols, '[^,]+', 1, level) is not null
-                                 ))||');'||chr(10);
+                         'on ('||l_pk_join||')'||chr(10);
+
+                if l_update_set is not null then
+                    l_sql := l_sql || 'when matched then update set '||l_update_set||chr(10);
+                end if;
+
+                l_sql := l_sql || 'when not matched then insert ('||l_all_cols||') values ('||l_values_list||');'||chr(10);
 
                 dbms_lob.append(l_out, l_sql);
                 dbms_lob.writeappend(l_out, 2, '/'||chr(10));
@@ -1151,7 +1172,22 @@ create or replace package body oei_env_sync_capture_pkg as
                    )) o
         ) loop
             if r.object_type in ('PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION','TRIGGER','VIEW','MATERIALIZED VIEW','TYPE','TYPE BODY','JOB','DIRECTORY') then
-                p_append_ddl(f_get_object_ddl(r.schema_name, r.object_type, r.object_name), r.object_type);
+                declare
+                    l_ddl clob;
+                begin
+                    l_ddl := f_get_object_ddl(r.schema_name, r.object_type, r.object_name);
+                    if l_ddl is not null then
+                        if dbms_lob.getlength(out_script) > 0 then
+                            dbms_lob.writeappend(out_script, 1, chr(10));
+                        end if;
+                        dbms_lob.append(out_script, l_ddl);
+                        dbms_lob.writeappend(out_script, 1, chr(10));
+                        if r.object_type in ('PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION','TRIGGER') then
+                            dbms_lob.writeappend(out_script, 2, '/'||chr(10));
+                        end if;
+                        dbms_lob.writeappend(out_script, 1, chr(10));
+                    end if;
+                end;
             else
                 null; -- skip TABLE/INDEX and structural types not safe for replace across DBs
             end if;
