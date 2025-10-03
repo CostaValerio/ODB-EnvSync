@@ -19,8 +19,8 @@ prompt Installing core database objects...
 @sql/ddl/env_sync_capture/oei_env_sync_releases.sql
 @sql/ddl/env_sync_capture/oei_env_sync_install_log.sql
 @sql/ddl/env_sync_capture/oei_env_sync_audit.sql
-@sql/ddl/env_sync_capture/oei_env_sync_scheduler.sql
 @sql/ddl/env_sync_capture/oei_env_sync_seed_tables.sql
+@sql/ddl/env_sync_capture/oei_env_sync_object_exclude.sql
 
 prompt Installing PL/SQL package (spec + body)...
 @sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pks

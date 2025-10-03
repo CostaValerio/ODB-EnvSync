@@ -78,5 +78,18 @@ create or replace package oei_env_sync_capture_pkg as
                                  in_object_type in t_object_type,
                                  in_object_name in t_object_name,
                                  in_dep_type    in varchar2) return clob;
+
+    -- Export baseline from a schema as JSON with ddl_hash for cross-database comparison
+    function f_export_baseline(in_schema_name in t_owner) return clob;
+
+    -- Compare a DEV baseline JSON against a target schema (cross-database friendly)
+    -- Returns JSON array with: schema_name, object_type, object_name, change_type, dev_hash, tgt_hash
+    function f_compare_baseline_to_schema(in_target_schema in t_owner,
+                                          in_baseline_json in clob) return clob;
+
+    -- Generate CREATE OR REPLACE scripts for code objects from a JSON list (safe across DBs)
+    procedure p_generate_replace_script_for(in_schema_name in t_owner,
+                                            in_objects_json in clob,
+                                            out_script out clob);
 end oei_env_sync_capture_pkg;
 /

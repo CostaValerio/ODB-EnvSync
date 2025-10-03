@@ -96,16 +96,14 @@ Os DDLs estao agora organizados por tipo de artefacto em `sql/ddl` e os modulos 
   @sql/ddl/env_sync_capture/oei_env_sync_releases.sql
   @sql/ddl/env_sync_capture/oei_env_sync_install_log.sql
   @sql/ddl/env_sync_capture/oei_env_sync_audit.sql
-  @sql/ddl/env_sync_capture/oei_env_sync_scheduler.sql
   @sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pks
   @sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pkb
 
-### Governance & Safety (optional but recommended in DEV)
+### Governance & Safety (optional)
 - DDL audit (DEV only): `oei_env_sync_audit` table + schema-level DDL trigger captures who/what/when and the DDL text. Enable/disable helpers are provided:
   - `exec oei_env_sync_audit_enable;`
   - `exec oei_env_sync_audit_disable;`
-- Nightly capture job: `OEI_ENV_SYNC_CAPTURE_JOB` scans `oei_env_sync_capture_targets` and runs `p_capture_schema` at 02:00 daily. Populate targets:
-  - `insert into oei_env_sync_capture_targets(schema_name) values ('MY_SCHEMA'); commit;`
+- Scheduler job: previously included; removed per design decision to keep the flow explicit and manual.
 - APEX authorization schemes (when APEX installer is enabled): two schemes are created — "Can Capture" and "Can Release" — driven by DB roles `OEI_ENV_CAPTURE_ROLE` and `OEI_ENV_RELEASE_ROLE`. Assign these schemes to pages or buttons as desired.
 ## Uninstall
 

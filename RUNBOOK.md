@@ -75,6 +75,40 @@ Purpose: build a script that creates only what’s missing (and, where possible,
      - Skips unchanged objects (based on stored DDL hash in DEV capture).
      - Appends configured data seeds (MERGE) if a target schema can be determined from the compare JSON.
 
+Detect Modified Objects Across Different Databases (Hash‑based)
+When DEV and PROD are in different databases, use the baseline/compare helpers to reliably identify MODIFIED vs UNCHANGED without DIFF.
+
+1) DEV: Export DEV baseline with hashes
+   set long 2000000000 longchunksize 32767 pages 0 lines 32767 trimspool on
+   spool dev_baseline.json
+   select oei_env_sync_capture_pkg.f_export_baseline('DEV_SCHEMA') from dual;
+   spool off
+
+2) PROD: Compare DEV baseline to PROD schema
+   var dev_json clob
+   declare l_clob clob := q'[PASTE_DEV_BASELINE_JSON_HERE]'; begin :dev_json := l_clob; end; /
+   spool prod_diff.json
+   select oei_env_sync_capture_pkg.f_compare_baseline_to_schema('PROD_SCHEMA', :dev_json) from dual;
+   spool off
+   - Output includes change_type for each object: MISSING, MODIFIED, UNCHANGED (plus dev_hash/tgt_hash).
+
+3) DEV: Generate CREATE OR REPLACE script for modified code objects only (safe)
+   var g_code clob
+   declare
+     l_code clob;
+     l_modified clob := q'[PASTE_ONLY_MODIFIED_ARRAY_JSON_HERE]';
+   begin
+     oei_env_sync_capture_pkg.p_generate_replace_script_for(
+       in_schema_name  => 'DEV_SCHEMA',
+       in_objects_json => l_modified,
+       out_script      => l_code);
+     :g_code := l_code;
+   end; /
+   spool install_modified_code_for_PROD.sql
+   print g_code
+   spool off
+   - This script covers code units (PACKAGE/PROC/FUNC/TRIGGER/VIEW/TYPE...), not tables/indexes.
+
 Install Script in PROD
 1) Review the script (it includes safety headers and a recompile block).
 2) Connect to the PROD database (target schema) and run:
@@ -95,4 +129,3 @@ Troubleshooting
 - Missing privileges on metadata: ensure access to ALL_* or USER_* views and `DBMS_METADATA*` packages.
 - Large output truncated: ensure `set long` and `print` usage as shown above; avoid relying on DBMS_OUTPUT for big CLOBs.
 - Scheduler/audit are optional—safe to skip in PROD if not needed.
-

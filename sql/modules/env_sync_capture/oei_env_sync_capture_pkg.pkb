@@ -353,7 +353,13 @@ create or replace package body oei_env_sync_capture_pkg as
                                   order by ui.index_name)
                          from user_indexes ui
                         where ui.table_owner = t.owner
-                          and ui.table_name = t.table_name),
+                          and ui.table_name = t.table_name
+                          and not exists (
+                                select 1
+                                  from oei_env_sync_object_exclude ex
+                                 where (ex.object_type is null or ex.object_type = 'INDEX')
+                                   and upper(ui.index_name) like upper(ex.name_like)
+                              )),
                    -- Array of triggers defined on the table with trigger text
                    'triggers' value (
                        select json_arrayagg(
@@ -368,7 +374,13 @@ create or replace package body oei_env_sync_capture_pkg as
                                   order by trg.trigger_name)
                          from user_triggers trg
                         where trg.table_owner = t.owner
-                          and trg.table_name = t.table_name)
+                          and trg.table_name = t.table_name
+                          and not exists (
+                                select 1
+                                  from oei_env_sync_object_exclude ex
+                                 where (ex.object_type is null or ex.object_type = 'TRIGGER')
+                                   and upper(trg.trigger_name) like upper(ex.name_like)
+                              ))
                    returning clob)
           into l_json
           from all_tables t
@@ -591,8 +603,14 @@ create or replace package body oei_env_sync_capture_pkg as
                     'FUNCTION',
                     'PACKAGE',
                     'PACKAGE BODY',
-                    'TRIGGER',
-                    'INDEX')
+                     'TRIGGER',
+                     'INDEX')
+               and not exists (
+                     select 1
+                       from oei_env_sync_object_exclude ex
+                      where (ex.object_type is null or ex.object_type = object_type)
+                        and upper(object_name) like upper(ex.name_like)
+                   )
              order by case object_type
                          when 'SEQUENCE' then 1
                          when 'DIRECTORY' then 2
@@ -617,13 +635,33 @@ create or replace package body oei_env_sync_capture_pkg as
         end loop;
 
         -- Additional objects not listed in ALL_OBJECTS: Directories and Scheduler Jobs
-        for d in (select directory_name from all_directories where owner = upper(in_schema_name)) loop
+        for d in (
+            select directory_name
+              from all_directories
+             where owner = upper(in_schema_name)
+               and not exists (
+                     select 1
+                       from oei_env_sync_object_exclude ex
+                      where (ex.object_type is null or ex.object_type = 'DIRECTORY')
+                        and upper(directory_name) like upper(ex.name_like)
+                   )
+        ) loop
             p_capture_object(in_schema_name => in_schema_name,
                              in_object_type => 'DIRECTORY',
                              in_object_name => d.directory_name);
         end loop;
 
-        for j in (select job_name from all_scheduler_jobs where owner = upper(in_schema_name)) loop
+        for j in (
+            select job_name
+              from all_scheduler_jobs
+             where owner = upper(in_schema_name)
+               and not exists (
+                     select 1
+                       from oei_env_sync_object_exclude ex
+                      where (ex.object_type is null or ex.object_type = 'JOB')
+                        and upper(job_name) like upper(ex.name_like)
+                   )
+        ) loop
             p_capture_object(in_schema_name => in_schema_name,
                              in_object_type => 'JOB',
                              in_object_name => j.job_name);
@@ -1007,6 +1045,128 @@ create or replace package body oei_env_sync_capture_pkg as
         end if;
         return l_out;
     end f_generate_seed_merges;
+
+    -- Export baseline with hashes for all supported objects in a schema
+    function f_export_baseline(in_schema_name in t_owner) return clob is
+        l_json clob;
+    begin
+        select json_arrayagg(
+                   json_object(
+                       'schema_name' value upper(in_schema_name),
+                       'object_type' value object_type,
+                       'object_name' value object_name,
+                       'ddl_hash'    value f_compute_object_hash(in_schema_name, object_type, object_name)
+                       returning clob)
+                   order by object_type, object_name)
+          into l_json
+          from (
+                select object_type, object_name
+                  from all_objects
+                 where owner = upper(in_schema_name)
+                   and object_type in (
+                        'SEQUENCE','DIRECTORY','TYPE','TYPE BODY','TABLE','VIEW','MATERIALIZED VIEW',
+                        'PROCEDURE','FUNCTION','PACKAGE','PACKAGE BODY','TRIGGER','INDEX')
+                   and not exists (
+                         select 1 from oei_env_sync_object_exclude ex
+                          where (ex.object_type is null or ex.object_type = object_type)
+                            and upper(object_name) like upper(ex.name_like)
+                       )
+               );
+        return l_json;
+    exception when others then
+        return null;
+    end f_export_baseline;
+
+    -- Compare a DEV baseline JSON against a target schema by computing target hashes
+    function f_compare_baseline_to_schema(in_target_schema in t_owner,
+                                          in_baseline_json in clob) return clob is
+        l_json clob;
+    begin
+        with base as (
+            select upper(nvl(b.schema_name, in_target_schema)) dev_schema,
+                   upper(b.object_type) object_type,
+                   upper(b.object_name) object_name,
+                   b.ddl_hash dev_hash
+              from json_table(in_baseline_json format json, '$[*]'
+                   columns (
+                     schema_name varchar2(128) path '$.schema_name',
+                     object_type varchar2(30)  path '$.object_type',
+                     object_name varchar2(128) path '$.object_name',
+                     ddl_hash    varchar2(64)  path '$.ddl_hash'
+                   )) b
+        ), tgt as (
+            select object_type, object_name,
+                   f_compute_object_hash(in_target_schema, object_type, object_name) as tgt_hash
+              from (
+                    select object_type, object_name
+                      from all_objects
+                     where owner = upper(in_target_schema)
+                   )
+        ), joined as (
+            select b.object_type,
+                   b.object_name,
+                   b.dev_hash,
+                   t.tgt_hash,
+                   case when t.tgt_hash is null then 'MISSING'
+                        when b.dev_hash is null or b.dev_hash != t.tgt_hash then 'MODIFIED'
+                        else 'UNCHANGED'
+                   end change_type
+              from base b
+              left join tgt t
+                on t.object_type = b.object_type
+               and t.object_name = b.object_name
+        )
+        select json_arrayagg(
+                   json_object(
+                       'schema_name' value upper(in_target_schema),
+                       'object_type' value object_type,
+                       'object_name' value object_name,
+                       'change_type' value change_type,
+                       'dev_hash'    value dev_hash,
+                       'tgt_hash'    value tgt_hash
+                       returning clob)
+                   order by change_type, object_type, object_name)
+          into l_json
+          from joined;
+        return l_json;
+    exception when others then
+        return null;
+    end f_compare_baseline_to_schema;
+
+    -- Generate CREATE OR REPLACE for code objects from a JSON list (skip tables/indexes)
+    procedure p_generate_replace_script_for(in_schema_name in t_owner,
+                                            in_objects_json in clob,
+                                            out_script out clob) is
+    begin
+        dbms_lob.createtemporary(out_script, true);
+        for r in (
+            select upper(nvl(o.schema_name, in_schema_name)) schema_name,
+                   upper(o.object_type) object_type,
+                   upper(o.object_name) object_name
+              from json_table(in_objects_json format json, '$[*]'
+                   columns (
+                     schema_name varchar2(128) path '$.schema_name',
+                     object_type varchar2(30)  path '$.object_type',
+                     object_name varchar2(128) path '$.object_name'
+                   )) o
+        ) loop
+            if r.object_type in ('PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION','TRIGGER','VIEW','MATERIALIZED VIEW','TYPE','TYPE BODY','JOB','DIRECTORY') then
+                p_append_ddl(f_get_object_ddl(r.schema_name, r.object_type, r.object_name), r.object_type);
+            else
+                null; -- skip TABLE/INDEX and structural types not safe for replace across DBs
+            end if;
+        end loop;
+        if dbms_lob.getlength(out_script) = 0 then
+            dbms_lob.freetemporary(out_script);
+            out_script := null;
+        end if;
+    exception when others then
+        if dbms_lob.istemporary(out_script) = 1 then
+            dbms_lob.freetemporary(out_script);
+        end if;
+        out_script := null;
+        raise;
+    end p_generate_replace_script_for;
 
 end oei_env_sync_capture_pkg;
 /

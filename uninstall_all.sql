@@ -7,12 +7,6 @@ set termout on
 set serveroutput on size unlimited
 whenever sqlerror continue
 
-prompt Removing scheduler job (if present)...
-declare
-begin
-  dbms_scheduler.drop_job('OEI_ENV_SYNC_CAPTURE_JOB', force => true);
-exception when others then null; end;
-/
 
 prompt Dropping audit trigger and helpers (if present)...
 begin execute immediate 'drop trigger oei_env_sync_audit_trg'; exception when others then null; end;
@@ -38,8 +32,6 @@ begin execute immediate 'drop table oei_env_sync_snapshots purge'; exception whe
 begin execute immediate 'drop table oei_env_sync_schema_objects purge'; exception when others then null; end;
 /
 begin execute immediate 'drop table oei_env_sync_audit purge'; exception when others then null; end;
-/
-begin execute immediate 'drop table oei_env_sync_capture_targets purge'; exception when others then null; end;
 /
 begin execute immediate 'drop table oei_env_sync_seed_tables purge'; exception when others then null; end;
 /
@@ -77,4 +69,3 @@ prompt ----------------------------------------------------------------
 prompt ================================================================================
 prompt Uninstall finished.
 prompt ================================================================================
-
