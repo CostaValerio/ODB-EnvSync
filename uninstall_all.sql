@@ -17,6 +17,12 @@ begin execute immediate 'drop procedure oei_env_sync_audit_disable'; exception w
 /
 
 prompt Dropping package (spec and body)...
+-- New name
+begin execute immediate 'drop package body pck_oei_env_sync'; exception when others then null; end;
+/
+begin execute immediate 'drop package pck_oei_env_sync'; exception when others then null; end;
+/
+-- Backward-compat (old name)
 begin execute immediate 'drop package body oei_env_sync_capture_pkg'; exception when others then null; end;
 /
 begin execute immediate 'drop package oei_env_sync_capture_pkg'; exception when others then null; end;

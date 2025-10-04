@@ -1,5 +1,5 @@
 -- canonical file name for package spec
-create or replace package oei_env_sync_capture_pkg as
+create or replace package pck_oei_env_sync as
     /*
       Package specification for environment sync capture utilities.
       - Public procedures use prefix p_
@@ -11,6 +11,11 @@ create or replace package oei_env_sync_capture_pkg as
     subtype t_owner is varchar2(128);
     subtype t_object_type is varchar2(30);
     subtype t_object_name is varchar2(128);
+
+    -- Public helper (SQL-usable) to compute current object hash
+    function f_compute_object_hash(in_schema_name in t_owner,
+                                   in_object_type in t_object_type,
+                                   in_object_name in t_object_name) return varchar2;
 
     -- Captures metadata for all supported objects within a schema
     procedure p_capture_schema(in_schema_name in t_owner default user);
@@ -91,5 +96,5 @@ create or replace package oei_env_sync_capture_pkg as
     procedure p_generate_replace_script_for(in_schema_name in t_owner,
                                             in_objects_json in clob,
                                             out_script out clob);
-end oei_env_sync_capture_pkg;
+end pck_oei_env_sync;
 /

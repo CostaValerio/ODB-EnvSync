@@ -1,5 +1,5 @@
 -- canonical file name for package body
-create or replace package body oei_env_sync_capture_pkg as
+create or replace package body pck_oei_env_sync as
 
     /*
       Package body implementing environment sync capture utilities.
@@ -44,7 +44,8 @@ create or replace package body oei_env_sync_capture_pkg as
 
     -- Compute SHA-256 hash (hex, lowercase) of normalized DDL
     function f_ddl_hash(in_ddl in clob) return varchar2 is
-        l_norm clob;
+        l_norm      clob;
+        l_hash_hex  varchar2(64);
     begin
         if in_ddl is null then
             return null;
@@ -53,11 +54,24 @@ create or replace package body oei_env_sync_capture_pkg as
         if l_norm is null then
             return null;
         end if;
-        return lower(rawtohex(standard_hash(l_norm, 'SHA256')));
-    exception
-        when others then
-            -- If environment lacks STANDARD_HASH CLOB support, fallback on VARCHAR2 slice
-            return lower(rawtohex(standard_hash(dbms_lob.substr(l_norm, 32767, 1), 'SHA256')));
+        -- Try STANDARD_HASH via dynamic block (handles versions without compile-time symbol)
+        begin
+            execute immediate 'begin :x := lower(rawtohex(standard_hash(:p,''SHA256''))); end;'
+                using out l_hash_hex, in dbms_lob.substr(l_norm, 32767, 1);
+        exception when others then
+            l_hash_hex := null;
+        end;
+        if l_hash_hex is not null then
+            return l_hash_hex;
+        end if;
+        -- Fallback to DBMS_CRYPTO over a VARCHAR2 slice (best-effort on older DBs)
+        begin
+            execute immediate 'begin :x := lower(rawtohex(dbms_crypto.hash(utl_raw.cast_to_raw(:p), dbms_crypto.hash_sh256))); end;'
+                using out l_hash_hex, in dbms_lob.substr(l_norm, 32767, 1);
+        exception when others then
+            l_hash_hex := null;
+        end;
+        return l_hash_hex;
     end f_ddl_hash;
 
     -- Internal: compute current object DDL hash for a given object
@@ -291,8 +305,7 @@ create or replace package body oei_env_sync_capture_pkg as
                                       'data_precision' value c.data_precision,
                                       'data_scale' value c.data_scale,
                                       'nullable' value c.nullable,
-                                      'default_on_null' value c.default_on_null,
-                                      'data_default' value c.data_default
+                                      'default_on_null' value c.default_on_null
                                   returning clob)
                                   order by c.column_id)
                          from all_tab_columns c
@@ -307,7 +320,6 @@ create or replace package body oei_env_sync_capture_pkg as
                                       'status' value uc.status,
                                       'deferrable' value uc.deferrable,
                                       'deferred' value uc.deferred,
-                                      'search_condition' value uc.search_condition,
                                       -- Array of constrained columns in order
                                       'columns' value (
                                           select json_arrayagg(
@@ -316,9 +328,10 @@ create or replace package body oei_env_sync_capture_pkg as
                                                          'position' value ucc.position
                                                      returning clob)
                                                      order by ucc.position)
-                                            from user_cons_columns ucc
+                                            from all_cons_columns ucc
                                            where ucc.owner = uc.owner
-                                             and ucc.constraint_name = uc.constraint_name),
+                                             and ucc.constraint_name = uc.constraint_name
+                                             and ucc.table_name = uc.table_name),
                                       -- Optional referenced constraint (FK)
                                       'reference' value json_object(
                                           'r_owner' value uc.r_owner,
@@ -326,7 +339,7 @@ create or replace package body oei_env_sync_capture_pkg as
                                           returning clob)
                                   returning clob)
                                   order by uc.constraint_name)
-                         from user_constraints uc
+                         from all_constraints uc
                         where uc.owner = t.owner
                           and uc.table_name = t.table_name),
                    -- Array of indexes defined on the table with indexed columns
@@ -346,12 +359,12 @@ create or replace package body oei_env_sync_capture_pkg as
                                                          'descend' value uic.descend
                                                      returning clob)
                                                      order by uic.column_position)
-                                             from user_ind_columns uic
+                                             from all_ind_columns uic
                                             where uic.index_name = ui.index_name
                                               and uic.index_owner = ui.owner)
                                   returning clob)
                                   order by ui.index_name)
-                         from user_indexes ui
+                         from all_indexes ui
                         where ui.table_owner = t.owner
                           and ui.table_name = t.table_name
                           and not exists (
@@ -368,11 +381,10 @@ create or replace package body oei_env_sync_capture_pkg as
                                       'trigger_type' value trg.trigger_type,
                                       'triggering_event' value trg.triggering_event,
                                       'status' value trg.status,
-                                      'description' value trg.description,
-                                      'body' value trg.trigger_body
+                                      'description' value trg.description
                                   returning clob)
                                   order by trg.trigger_name)
-                         from user_triggers trg
+                         from all_triggers trg
                         where trg.table_owner = t.owner
                           and trg.table_name = t.table_name
                           and not exists (
@@ -404,7 +416,7 @@ create or replace package body oei_env_sync_capture_pkg as
                    'view_name' value view_name,
                    'read_only' value read_only,
                    'text_length' value text_length,
-                   'text' value text,
+                   -- omit VIEW TEXT (LONG) for compatibility
                    -- Array of columns exposed by the view
                    'columns' value (
                        select json_arrayagg(
@@ -451,7 +463,7 @@ create or replace package body oei_env_sync_capture_pkg as
                    'schema' value upper(in_schema_name),
                    'object_type' value l_type,
                    'object_name' value upper(in_object_name),
-                   'ddl' value l_ddl
+                   'ddl' value dbms_lob.substr(l_ddl, 32767, 1)
                    returning clob);
     exception
         when others then
@@ -478,7 +490,7 @@ create or replace package body oei_env_sync_capture_pkg as
     begin
         -- Build a JSON object with index attributes and list of columns
         select json_object(
-                   'schema' value owner,
+                   'schema' value idx.owner,
                    'index_name' value index_name,
                    'table_name' value table_name,
                    'table_owner' value table_owner,
@@ -494,12 +506,12 @@ create or replace package body oei_env_sync_capture_pkg as
                                       'descend' value descend
                                   returning clob)
                                   order by column_position)
-                         from user_ind_columns c
+                         from all_ind_columns c
                         where c.index_name = idx.index_name
                           and c.index_owner = idx.owner)
                    returning clob)
           into l_json
-          from user_indexes idx
+          from all_indexes idx
          where idx.owner = upper(in_schema_name)
            and idx.index_name = upper(in_index_name);
         return l_json;
@@ -947,12 +959,16 @@ create or replace package body oei_env_sync_capture_pkg as
                            when 'TYPE BODY' then 'TYPE_BODY'
                            else upper(in_object_type)
                        end;
-        return dbms_metadata.get_dependent_ddl(object_type => upper(in_dep_type),
-                                               name        => upper(in_object_name),
-                                               schema      => upper(in_schema_name));
-    exception
-        when others then
+        -- Use dynamic block to avoid compile-time signature mismatch across versions
+        declare
+            l_out clob;
+        begin
+            execute immediate 'begin :o := dbms_metadata.get_dependent_ddl(:t, :n, :s); end;'
+               using out l_out, in upper(in_dep_type), in upper(in_object_name), in upper(in_schema_name);
+            return l_out;
+        exception when others then
             return null;
+        end;
     end f_get_dependent_ddl;
 
     -- Generate MERGE statements for configured seed tables from source to target
@@ -1204,9 +1220,9 @@ create or replace package body oei_env_sync_capture_pkg as
         raise;
     end p_generate_replace_script_for;
 
-end oei_env_sync_capture_pkg;
+end pck_oei_env_sync;
 /
  
 -- Display compilation errors (for SQL*Plus/SQLcl usage)
-show errors package oei_env_sync_capture_pkg;
-show errors package body oei_env_sync_capture_pkg;
+show errors package pck_oei_env_sync;
+show errors package body pck_oei_env_sync;
