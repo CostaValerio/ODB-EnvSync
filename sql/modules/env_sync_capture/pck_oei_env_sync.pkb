@@ -154,7 +154,8 @@ create or replace package body pck_oei_env_sync as
                            'object_name' value so.object_name,
                            'change_type' value 'ADDED'
                            returning clob)
-                       order by so.object_type, so.object_name)
+                       order by so.object_type, so.object_name
+                       returning clob)
               into l_json
               from oei_env_sync_schema_objects so
              where so.schema_name = upper(in_schema_name);
@@ -213,7 +214,8 @@ create or replace package body pck_oei_env_sync as
                        'object_name' value object_name,
                        'change_type' value change_type
                        returning clob)
-                   order by change_type, object_type, object_name)
+                   order by change_type, object_type, object_name
+                   returning clob)
           into l_json
           from (
                 select * from added
@@ -312,7 +314,8 @@ create or replace package body pck_oei_env_sync as
                                       'nullable' value c.nullable,
                                       'default_on_null' value c.default_on_null
                                   returning clob)
-                                  order by c.column_id)
+                                  order by c.column_id
+                                  returning clob)
                          from all_tab_columns c
                         where c.owner = t.owner
                           and c.table_name = t.table_name),
@@ -332,7 +335,8 @@ create or replace package body pck_oei_env_sync as
                                                          'column_name' value ucc.column_name,
                                                          'position' value ucc.position
                                                      returning clob)
-                                                     order by ucc.position)
+                                                     order by ucc.position
+                                                     returning clob)
                                             from all_cons_columns ucc
                                            where ucc.owner = uc.owner
                                              and ucc.constraint_name = uc.constraint_name
@@ -343,7 +347,8 @@ create or replace package body pck_oei_env_sync as
                                           'r_constraint_name' value uc.r_constraint_name
                                           returning clob)
                                   returning clob)
-                                  order by uc.constraint_name)
+                                  order by uc.constraint_name
+                                  returning clob)
                          from all_constraints uc
                         where uc.owner = t.owner
                           and uc.table_name = t.table_name),
@@ -363,12 +368,14 @@ create or replace package body pck_oei_env_sync as
                                                          'column_position' value uic.column_position,
                                                          'descend' value uic.descend
                                                      returning clob)
-                                                     order by uic.column_position)
+                                                     order by uic.column_position
+                                                     returning clob)
                                              from all_ind_columns uic
                                             where uic.index_name = ui.index_name
                                               and uic.index_owner = ui.owner)
                                   returning clob)
-                                  order by ui.index_name)
+                                  order by ui.index_name
+                                  returning clob)
                          from all_indexes ui
                         where ui.table_owner = t.owner
                           and ui.table_name = t.table_name
@@ -388,7 +395,8 @@ create or replace package body pck_oei_env_sync as
                                       'status' value trg.status,
                                       'description' value trg.description
                                   returning clob)
-                                  order by trg.trigger_name)
+                                  order by trg.trigger_name
+                                  returning clob)
                          from all_triggers trg
                         where trg.table_owner = t.owner
                           and trg.table_name = t.table_name
@@ -433,7 +441,8 @@ create or replace package body pck_oei_env_sync as
                                       'data_scale' value c.data_scale,
                                       'nullable' value c.nullable
                                   returning clob)
-                                  order by c.column_id)
+                                  order by c.column_id
+                                  returning clob)
                          from all_tab_columns c
                         where c.owner = v.owner
                           and c.table_name = v.view_name)
@@ -1108,7 +1117,8 @@ create or replace package body pck_oei_env_sync as
                        'object_name' value object_name,
                        'ddl_hash'    value f_compute_object_hash(in_schema_name, object_type, object_name)
                        returning clob)
-                   order by object_type, object_name)
+                   order by object_type, object_name
+                   returning clob)
           into l_json
           from (
                 select object_type, object_name
@@ -1176,7 +1186,8 @@ create or replace package body pck_oei_env_sync as
                        'dev_hash'    value dev_hash,
                        'tgt_hash'    value tgt_hash
                        returning clob)
-                   order by change_type, object_type, object_name)
+                   order by change_type, object_type, object_name
+                   returning clob)
           into l_json
           from joined;
         return l_json;

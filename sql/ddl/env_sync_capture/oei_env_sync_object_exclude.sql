@@ -13,6 +13,7 @@ merge into oei_env_sync_object_exclude t
 using (
   select cast(null as varchar2(30)) object_type, 'BIN$%' name_like from dual union all
   select cast(null as varchar2(30)) object_type, 'ISEQ%' name_like from dual union all
+  select cast(null as varchar2(30)) object_type, 'APEX$%' name_like from dual union all
   select 'INDEX',   'SYS_%' from dual union all
   select 'TRIGGER', 'SYS_%' from dual
 ) s
