@@ -41,6 +41,8 @@ begin execute immediate 'drop table oei_env_sync_audit purge'; exception when ot
 /
 begin execute immediate 'drop table oei_env_sync_seed_tables purge'; exception when others then null; end;
 /
+begin execute immediate 'drop table oei_env_sync_object_exclude purge'; exception when others then null; end;
+/
 begin execute immediate 'drop table oei_install_script_strategy_naming purge'; exception when others then null; end;
 /
 begin execute immediate 'drop table oei_install_script_type_mode purge'; exception when others then null; end;
