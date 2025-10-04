@@ -1,4 +1,4 @@
--- canonical file name for package body
+-- canonical file name for package body (renamed to pck_oei_env_sync.pkb)
 create or replace package body pck_oei_env_sync as
 
     /*

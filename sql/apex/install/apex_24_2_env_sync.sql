@@ -144,7 +144,7 @@ begin
 declare
   l_schema varchar2(128) := coalesce(:P1_SCHEMA_NAME, user);
 begin
-  oei_env_sync_capture_pkg.p_capture_schema(l_schema);
+  pck_oei_env_sync.p_capture_schema(l_schema);
   :P1_MESSAGE := 'Capture completed for ' || upper(l_schema);
 exception
   when others then
@@ -248,7 +248,7 @@ declare
   l_type   varchar2(30)  := :P2_OBJECT_TYPE;
   l_name   varchar2(128) := :P2_OBJECT_NAME;
 begin
-  oei_env_sync_capture_pkg.p_capture_object(
+  pck_oei_env_sync.p_capture_object(
     in_schema_name => l_schema,
     in_object_type => l_type,
     in_object_name => l_name
@@ -354,7 +354,7 @@ declare
   l_script clob;
   l_schema varchar2(128) := coalesce(:P3_SCHEMA_NAME, user);
 begin
-  oei_env_sync_capture_pkg.p_generate_install_script(
+  pck_oei_env_sync.p_generate_install_script(
     in_schema_name   => l_schema,
     in_compare_json  => :P3_COMPARE_JSON,
     out_script       => l_script
@@ -509,7 +509,7 @@ begin
     p_plug_name=>'Changes', p_plug_display_sequence=>20, p_plug_source_type=>'NATIVE_IR',
     p_plug_source=>q'[
 with data as (
-  select oei_env_sync_capture_pkg.f_list_changes(:P6_SCHEMA_NAME,
+  select pck_oei_env_sync.f_list_changes(:P6_SCHEMA_NAME,
           (select payload from oei_env_sync_snapshots where snapshot_id = :P6_SNAPSHOT_ID)) j from dual
 )
 select t.change_type, t.object_type, t.object_name
@@ -603,18 +603,18 @@ declare
   l_manifest clob;
   l_hash     varchar2(64);
 begin
-  l_manifest := oei_env_sync_capture_pkg.f_list_changes(
+  l_manifest := pck_oei_env_sync.f_list_changes(
                    in_schema_name  => :P7_SCHEMA_NAME,
                    in_compare_json => (select payload from oei_env_sync_snapshots where snapshot_id = :P7_SNAPSHOT_ID)
                  );
 
-  oei_env_sync_capture_pkg.p_generate_install_script(
+  pck_oei_env_sync.p_generate_install_script(
     in_schema_name   => :P7_SCHEMA_NAME,
     in_compare_json  => (select payload from oei_env_sync_snapshots where snapshot_id = :P7_SNAPSHOT_ID),
     out_script       => l_script
   );
 
-  l_hash := oei_env_sync_capture_pkg.f_ddl_hash(l_script);
+  l_hash := pck_oei_env_sync.f_ddl_hash(l_script);
 
   insert into oei_env_sync_releases (status, release_title, manifest_json, script_clob, script_hash)
   values ('DRAFT', :P7_TITLE, l_manifest, l_script, l_hash);

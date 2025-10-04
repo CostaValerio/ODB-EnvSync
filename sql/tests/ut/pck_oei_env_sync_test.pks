@@ -1,4 +1,4 @@
-create or replace package oei_env_sync_capture_pkg_test as
+create or replace package pck_oei_env_sync_test as
   --%suite(Env Sync Capture - Unit Tests)
   --%suitepath(oei.envsync)
 
@@ -13,5 +13,5 @@ create or replace package oei_env_sync_capture_pkg_test as
 
   --%test(f_diff_object does not raise and returns CLOB or NULL)
   procedure t_diff_object_smoke;
-end oei_env_sync_capture_pkg_test;
+end pck_oei_env_sync_test;
 /

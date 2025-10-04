@@ -20,7 +20,7 @@ declare
   l_script clob;
   l_schema t_owner := coalesce(:P3_SCHEMA_NAME, user);
 begin
-  oei_env_sync_capture_pkg.p_generate_install_script(
+  pck_oei_env_sync.p_generate_install_script(
     in_schema_name   => l_schema,
     in_compare_json  => :P3_COMPARE_JSON,
     out_script       => l_script

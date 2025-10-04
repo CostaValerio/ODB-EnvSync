@@ -11,7 +11,7 @@
 -- Assumes P6_COMPARE_JSON is set from selected snapshot payload
 --
 -- with data as (
---   select oei_env_sync_capture_pkg.f_list_changes(:P6_SCHEMA_NAME, :P6_COMPARE_JSON) j from dual
+--   select pck_oei_env_sync.f_list_changes(:P6_SCHEMA_NAME, :P6_COMPARE_JSON) j from dual
 -- )
 -- select t.change_type,
 --        t.object_type,
@@ -28,20 +28,19 @@
 
 -- DDL Preview process (On demand or After Submit example):
 -- declare
---   l_mode varchar2(20) := oei_env_sync_capture_pkg.f_get_type_mode(:P6_OBJECT_TYPE);
+--   l_mode varchar2(20) := pck_oei_env_sync.f_get_type_mode(:P6_OBJECT_TYPE);
 --   l_ddl  clob;
 -- begin
 --   if :P6_CHANGE_TYPE = 'DROPPED' then
 --     l_ddl := '/* Candidate drop */ DROP '||:P6_OBJECT_TYPE||' '||:P6_OBJECT_NAME;
 --   elsif l_mode = 'DIFF' then
---     l_ddl := oei_env_sync_capture_pkg.f_diff_object(:P6_SCHEMA_NAME, :P6_TARGET_SCHEMA, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
+--     l_ddl := pck_oei_env_sync.f_diff_object(:P6_SCHEMA_NAME, :P6_TARGET_SCHEMA, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
 --     if l_ddl is null then
---       l_ddl := oei_env_sync_capture_pkg.f_get_object_ddl(:P6_SCHEMA_NAME, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
+--       l_ddl := pck_oei_env_sync.f_get_object_ddl(:P6_SCHEMA_NAME, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
 --     end if;
 --   else
---     l_ddl := oei_env_sync_capture_pkg.f_get_object_ddl(:P6_SCHEMA_NAME, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
+--     l_ddl := pck_oei_env_sync.f_get_object_ddl(:P6_SCHEMA_NAME, :P6_OBJECT_TYPE, :P6_OBJECT_NAME);
 --   end if;
 --   :P6_DDL := l_ddl;
 -- end;
 /
-

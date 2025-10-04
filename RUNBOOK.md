@@ -16,7 +16,7 @@ One‑Time Install (DEV and/or PROD)
 Daily DEV Workflow
 1) Capture current DEV schema objects
    begin
-     oei_env_sync_capture_pkg.p_capture_schema('DEV_SCHEMA');
+     pck_oei_env_sync.p_capture_schema('DEV_SCHEMA');
    end;
    /
    - Run after meaningful changes (or schedule nightly). This stores object payloads + DDL hash.
@@ -58,7 +58,7 @@ Purpose: build a script that creates only what’s missing (and, where possible,
      l_script  clob;
      l_compare clob := q'[PASTE_PROD_JSON_HERE]';
    begin
-     oei_env_sync_capture_pkg.p_generate_install_script(
+     pck_oei_env_sync.p_generate_install_script(
        in_schema_name  => 'DEV_SCHEMA',
        in_compare_json => l_compare,
        out_script      => l_script);
@@ -81,14 +81,14 @@ When DEV and PROD are in different databases, use the baseline/compare helpers t
 1) DEV: Export DEV baseline with hashes
    set long 2000000000 longchunksize 32767 pages 0 lines 32767 trimspool on
    spool dev_baseline.json
-   select oei_env_sync_capture_pkg.f_export_baseline('DEV_SCHEMA') from dual;
+  select pck_oei_env_sync.f_export_baseline('DEV_SCHEMA') from dual;
    spool off
 
 2) PROD: Compare DEV baseline to PROD schema
    var dev_json clob
    declare l_clob clob := q'[PASTE_DEV_BASELINE_JSON_HERE]'; begin :dev_json := l_clob; end; /
    spool prod_diff.json
-   select oei_env_sync_capture_pkg.f_compare_baseline_to_schema('PROD_SCHEMA', :dev_json) from dual;
+  select pck_oei_env_sync.f_compare_baseline_to_schema('PROD_SCHEMA', :dev_json) from dual;
    spool off
    - Output includes change_type for each object: MISSING, MODIFIED, UNCHANGED (plus dev_hash/tgt_hash).
 
@@ -98,7 +98,7 @@ When DEV and PROD are in different databases, use the baseline/compare helpers t
      l_code clob;
      l_modified clob := q'[PASTE_ONLY_MODIFIED_ARRAY_JSON_HERE]';
    begin
-     oei_env_sync_capture_pkg.p_generate_replace_script_for(
+     pck_oei_env_sync.p_generate_replace_script_for(
        in_schema_name  => 'DEV_SCHEMA',
        in_objects_json => l_modified,
        out_script      => l_code);

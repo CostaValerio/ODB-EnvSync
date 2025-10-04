@@ -22,7 +22,7 @@
 declare
   l_schema t_owner := coalesce(:P1_SCHEMA_NAME, user);
 begin
-  oei_env_sync_capture_pkg.p_capture_schema(l_schema);
+  pck_oei_env_sync.p_capture_schema(l_schema);
   :P1_MESSAGE := 'Capture completed for ' || upper(l_schema);
 exception
   when others then

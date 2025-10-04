@@ -9,7 +9,7 @@ What’s included
 How to use
 1) Create a new APEX application (Universal Theme is fine).
 2) For each page below, add a new blank page (or appropriate page type) and copy the SQL/PLSQL from the corresponding file under `sql/apex/pages/`.
-3) Ensure the parsing schema of the APEX app has execute privileges on `OEI_ENV_SYNC_CAPTURE_PKG` and read access to `OEI_ENV_SYNC_SCHEMA_OBJECTS`.
+3) Ensure the parsing schema of the APEX app has execute privileges on `PCK_OEI_ENV_SYNC` and read access to `OEI_ENV_SYNC_SCHEMA_OBJECTS`.
 
 Required privileges
 - The parsing schema must be able to select from metadata views used by the package (ALL_* / USER_*). Grant as needed per your security policy.

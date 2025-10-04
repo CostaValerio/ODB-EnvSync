@@ -4,13 +4,13 @@ Tool to sync Oracle DB environments, reads db objects, outputs as json, and gene
 
 ## Generating install scripts
 
-Use the procedure `oei_env_sync_capture_pkg.p_generate_install_script` to obtain the DDL needed to recreate objects captured in `ENV_SYNC_SCHEMA_OBJECTS`.
+Use the procedure `pck_oei_env_sync.p_generate_install_script` to obtain the DDL needed to recreate objects captured in `ENV_SYNC_SCHEMA_OBJECTS`.
 
 ```
 declare
     l_script clob;
 begin
-    oei_env_sync_capture_pkg.p_generate_install_script(
+    pck_oei_env_sync.p_generate_install_script(
         in_schema_name  => 'MY_SCHEMA',
         in_compare_json => null,
         out_script      => l_script);
@@ -96,8 +96,8 @@ Os DDLs estao agora organizados por tipo de artefacto em `sql/ddl` e os modulos 
   @sql/ddl/env_sync_capture/oei_env_sync_releases.sql
   @sql/ddl/env_sync_capture/oei_env_sync_install_log.sql
   @sql/ddl/env_sync_capture/oei_env_sync_audit.sql
-  @sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pks
-  @sql/modules/env_sync_capture/oei_env_sync_capture_pkg.pkb
+  @sql/modules/env_sync_capture/pck_oei_env_sync.pks
+  @sql/modules/env_sync_capture/pck_oei_env_sync.pkb
 
 ### Governance & Safety (optional)
 - DDL audit (DEV only): `oei_env_sync_audit` table + schema-level DDL trigger captures who/what/when and the DDL text. Enable/disable helpers are provided:
@@ -116,8 +116,8 @@ This removes the scheduler job, audit trigger/helpers, package, and all related 
 
 Unit tests are provided using utPLSQL. Install utPLSQL in your database (see its documentation), then run:
 
-  @sql/tests/ut/oei_env_sync_capture_pkg_test.pks
-  @sql/tests/ut/oei_env_sync_capture_pkg_test.pkb
+  @sql/tests/ut/pck_oei_env_sync_test.pks
+  @sql/tests/ut/pck_oei_env_sync_test.pkb
   begin ut.run('oei.envsync'); end; /
 
 The suite validates DDL normalization and hashing and includes a smoke test for the DIFF API. If utPLSQL is not available, you can skip this step.

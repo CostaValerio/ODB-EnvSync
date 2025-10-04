@@ -21,7 +21,7 @@ order by object_type, object_name;
 -- Optional: Add an Action Menu link to recapture a selected object (Dynamic Action "Execute PL/SQL"):
 --   PL/SQL Code:
 --     begin
---       oei_env_sync_capture_pkg.p_capture_object(
+--       pck_oei_env_sync.p_capture_object(
 --         in_schema_name => :P4_SCHEMA_NAME,
 --         in_object_type => :OBJECT_TYPE,
 --         in_object_name => :OBJECT_NAME

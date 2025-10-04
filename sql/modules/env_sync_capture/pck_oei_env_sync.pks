@@ -1,4 +1,4 @@
--- canonical file name for package spec
+-- canonical file name for package spec (renamed to pck_oei_env_sync.pks)
 create or replace package pck_oei_env_sync as
     /*
       Package specification for environment sync capture utilities.

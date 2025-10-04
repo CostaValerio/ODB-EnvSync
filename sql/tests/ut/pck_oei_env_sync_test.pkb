@@ -1,10 +1,10 @@
-create or replace package body oei_env_sync_capture_pkg_test as
+create or replace package body pck_oei_env_sync_test as
 
   procedure t_normalize_basic is
     l_in  clob := 'create table t (id number);'||chr(10)||'  '; 
     l_out clob;
   begin
-    l_out := oei_env_sync_capture_pkg.f_normalize_ddl(l_in);
+    l_out := pck_oei_env_sync.f_normalize_ddl(l_in);
     ut.expect(l_out).to_equal('create table t (id number)');
   end;
 
@@ -14,8 +14,8 @@ create or replace package body oei_env_sync_capture_pkg_test as
     h_a   varchar2(64);
     h_b   varchar2(64);
   begin
-    h_a := oei_env_sync_capture_pkg.f_ddl_hash(l_a);
-    h_b := oei_env_sync_capture_pkg.f_ddl_hash(l_b);
+    h_a := pck_oei_env_sync.f_ddl_hash(l_a);
+    h_b := pck_oei_env_sync.f_ddl_hash(l_b);
     ut.expect(h_a).to_equal(h_b);
   end;
 
@@ -23,8 +23,8 @@ create or replace package body oei_env_sync_capture_pkg_test as
     h_a varchar2(64);
     h_b varchar2(64);
   begin
-    h_a := oei_env_sync_capture_pkg.f_ddl_hash('create table t (id number)');
-    h_b := oei_env_sync_capture_pkg.f_ddl_hash('create table t (id number, c2 number)');
+    h_a := pck_oei_env_sync.f_ddl_hash('create table t (id number)');
+    h_b := pck_oei_env_sync.f_ddl_hash('create table t (id number, c2 number)');
     ut.expect(h_a).to_not_equal(h_b);
   end;
 
@@ -32,12 +32,12 @@ create or replace package body oei_env_sync_capture_pkg_test as
     l_out clob;
   begin
     -- Not asserting exact content; just that it doesn't raise and returns something sensible
-    l_out := oei_env_sync_capture_pkg.f_diff_object(user, user, 'TABLE', 'NO_SUCH_TABLE');
+    l_out := pck_oei_env_sync.f_diff_object(user, user, 'TABLE', 'NO_SUCH_TABLE');
     ut.expect(1).to_equal(1); -- reached here without raising
   exception
     when others then
       ut.fail('f_diff_object raised: '||sqlerrm);
   end;
 
-end oei_env_sync_capture_pkg_test;
+end pck_oei_env_sync_test;
 /

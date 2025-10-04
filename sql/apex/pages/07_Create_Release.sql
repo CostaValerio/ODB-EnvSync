@@ -8,18 +8,18 @@ declare
   l_manifest clob;
   l_hash     varchar2(64);
 begin
-  l_manifest := oei_env_sync_capture_pkg.f_list_changes(
+  l_manifest := pck_oei_env_sync.f_list_changes(
                    in_schema_name  => :P7_SCHEMA_NAME,
                    in_compare_json => (select payload from oei_env_sync_snapshots where snapshot_id = :P7_SNAPSHOT_ID)
                  );
 
-  oei_env_sync_capture_pkg.p_generate_install_script(
+  pck_oei_env_sync.p_generate_install_script(
     in_schema_name   => :P7_SCHEMA_NAME,
     in_compare_json  => (select payload from oei_env_sync_snapshots where snapshot_id = :P7_SNAPSHOT_ID),
     out_script       => l_script
   );
 
-  l_hash := oei_env_sync_capture_pkg.f_ddl_hash(l_script);
+  l_hash := pck_oei_env_sync.f_ddl_hash(l_script);
 
   insert into oei_env_sync_releases (status, release_title, manifest_json, script_clob, script_hash)
   values ('DRAFT', :P7_TITLE, l_manifest, l_script, l_hash);
@@ -32,4 +32,3 @@ exception
     raise;
 end;
 /
-
