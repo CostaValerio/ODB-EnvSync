@@ -1,6 +1,11 @@
 -- canonical file name for package body (renamed to pck_oei_env_sync.pkb)
 create or replace package body pck_oei_env_sync as
 
+    -- Forward declarations for local functions used before definition
+    function f_get_object_ddl(in_schema_name in t_owner,
+                              in_object_type in t_object_type,
+                              in_object_name in t_object_name) return clob;
+
     /*
       Package body implementing environment sync capture utilities.
       Responsibilities:
@@ -446,10 +451,11 @@ create or replace package body pck_oei_env_sync as
 
     -- Produce JSON containing the DDL for program units
     function f_get_program_unit_json(in_schema_name in t_owner,
-                                   in_object_type in t_object_type,
-                                   in_object_name in t_object_name) return clob is
-        l_ddl clob;
+                                     in_object_type in t_object_type,
+                                     in_object_name in t_object_name) return clob is
+        l_ddl  clob;
         l_type varchar2(30) := upper(in_object_type);
+        l_json clob;
     begin
         -- Ensure DDL is pretty-printed and terminated
         p_configure_metadata_transform;
@@ -458,22 +464,30 @@ create or replace package body pck_oei_env_sync as
                                        name        => upper(in_object_name),
                                        schema      => upper(in_schema_name));
 
-        -- Package the DDL into a JSON payload for consistency
-        return json_object(
+        select json_object(
                    'schema' value upper(in_schema_name),
                    'object_type' value l_type,
                    'object_name' value upper(in_object_name),
                    'ddl' value dbms_lob.substr(l_ddl, 32767, 1)
-                   returning clob);
+                   returning clob)
+          into l_json
+          from dual;
+        return l_json;
     exception
         when others then
-            -- On error (e.g., privileges), emit JSON with error message
-            return json_object(
-                       'schema' value upper(in_schema_name),
-                       'object_type' value l_type,
-                       'object_name' value upper(in_object_name),
-                       'error' value sqlerrm
-                       returning clob);
+            declare
+                l_err varchar2(4000) := sqlerrm;
+            begin
+                select json_object(
+                           'schema' value upper(in_schema_name),
+                           'object_type' value l_type,
+                           'object_name' value upper(in_object_name),
+                           'error' value l_err
+                           returning clob)
+                  into l_json
+                  from dual;
+                return l_json;
+            end;
     end f_get_program_unit_json;
 
     -- Convenience wrapper to get trigger DDL via program unit helper
@@ -1009,7 +1023,7 @@ create or replace package body pck_oei_env_sync as
                   from all_tab_columns
                  where owner = upper(in_src_schema)
                    and table_name = t.table_name
-                   and hidden_column = 'NO';
+                   and column_name not like 'SYS_%';
 
                 -- Non-PK columns
                 select listagg(column_name, ',') within group(order by column_id)
@@ -1017,7 +1031,7 @@ create or replace package body pck_oei_env_sync as
                   from all_tab_columns
                  where owner = upper(in_src_schema)
                    and table_name = t.table_name
-                   and hidden_column = 'NO'
+                   and column_name not like 'SYS_%'
                    and (l_pk_cols is null or instr(','||l_pk_cols||',', ','||column_name||',') = 0);
 
                 if l_all_cols is null or l_pk_cols is null then
